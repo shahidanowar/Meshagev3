@@ -7,7 +7,7 @@ import { StorageService } from '../utils/storage';
 import Onboarding from '../screens/Onboarding/Onboarding';
 import PersonalChatScreen from '../screens/Friends/PersonalChatScreen';
 import { MainTabNavigator } from './MainTabNavigator';
-
+import MoreInfoPage from '../screens/Settings/MoreInfoPage';
 // Type Definitions
 export type RootStackParamList = {
     Onboarding: undefined;
@@ -59,17 +59,22 @@ const AppNavigator = () => {
                 }}
             >
                 <Stack.Screen name="Onboarding" component={Onboarding} />
-                
+
                 <Stack.Screen name="Main" component={MainTabNavigator} />
-                
+
                 {/* Chat Detail Screen with Slide Animation */}
-                <Stack.Screen 
-                    name="PersonalChat" 
-                    component={PersonalChatScreen} 
-                    options={{ 
+                <Stack.Screen
+                    name="PersonalChat"
+                    component={PersonalChatScreen}
+                    options={{
                         animation: 'slide_from_right',
-                        headerShown: false 
-                    }} 
+                        headerShown: false
+                    }}
+                />
+                <Stack.Screen
+                    name="MoreInfoPage"
+                    component={MoreInfoPage}
+                    options={{ title: 'More Info' }} // Optional styling
                 />
             </Stack.Navigator>
         </>

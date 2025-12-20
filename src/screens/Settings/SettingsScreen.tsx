@@ -1,412 +1,569 @@
-import React, { useEffect, useState } from "react";
-import { Text, View, StyleSheet, ScrollView, TouchableOpacity, Alert, NativeModules } from "react-native";
-import QRCode from "react-native-qrcode-svg";
-import { StorageService } from "../../utils/storage";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  ScrollView,
+  Animated,
+  Platform,
+  PermissionsAndroid,
+} from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useNavigation } from '@react-navigation/native';
+import Svg, { Path } from 'react-native-svg';
+import QRCode from 'react-native-qrcode-svg';
+import { Camera, CameraType } from 'react-native-camera-kit'; // Ensure CameraType is imported if needed by your version
+import { StorageService } from '../../utils/storage'; 
 
-const { MeshNetwork } = NativeModules;
+export default function SettingsScreen() {
+  const [isConnected, setIsConnected] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [userName, setUserName] = useState('');
+  const [persistentId, setPersistentId] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
+  const navigation = useNavigation<any>(); // Typed as any to avoid TS errors if nav types aren't set up
 
-const SettingsScreen = () => {
-    const [username, setUsername] = useState<string>('');
-    const [persistentId, setPersistentId] = useState<string>('');
-    const [endpointId, setEndpointId] = useState<string>('');
-    const [deviceIdentifier, setDeviceIdentifier] = useState<string>('');
-    const [friendsCount, setFriendsCount] = useState<number>(0);
-    const [friendRequestsCount, setFriendRequestsCount] = useState<number>(0);
-    const [loading, setLoading] = useState<boolean>(true);
+  useEffect(() => {
+    const loadUserInfo = async () => {
+      const savedUsername = await StorageService.getUsername();
+      const savedPersistentId = await StorageService.getPersistentId();
 
-    useEffect(() => {
-        loadUserData();
-    }, []);
-
-    const loadUserData = async () => {
-        try {
-            setLoading(true);
-            
-            // Load username
-            const savedUsername = await StorageService.getUsername();
-            setUsername(savedUsername || 'User');
-            
-            // Load persistent ID
-            const savedPersistentId = await StorageService.getPersistentId();
-            setPersistentId(savedPersistentId);
-            
-            // Load friends count
-            const friends = await StorageService.getFriends();
-            setFriendsCount(friends.length);
-            
-            // Load friend requests count
-            const requests = await StorageService.getFriendRequests();
-            setFriendRequestsCount(requests.length);
-            
-            // Create device identifier (username|persistentId)
-            const identifier = `${savedUsername || 'User'}|${savedPersistentId}`;
-            setDeviceIdentifier(identifier);
-            
-            // Load endpoint ID from native module
-            try {
-                const localEndpointId = await MeshNetwork.getLocalEndpointId();
-                setEndpointId(localEndpointId || 'Not connected yet');
-            } catch (error) {
-                console.log('Error getting endpoint ID:', error);
-                setEndpointId('Not available');
-            }
-            
-            setLoading(false);
-        } catch (error) {
-            console.error('Error loading user data:', error);
-            setLoading(false);
-        }
+      if (savedUsername) {
+        setUserName(savedUsername);
+      }
+      setPersistentId(savedPersistentId || '');
     };
 
-    const handleClearData = () => {
+    loadUserInfo();
+  }, []);
+
+  const requestCameraPermission = async (): Promise<boolean> => {
+    if (Platform.OS !== 'android') {
+      return true;
+    }
+
+    try {
+      const result = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+      );
+      return result === PermissionsAndroid.RESULTS.GRANTED;
+    } catch (error) {
+      console.error('Error requesting camera permission:', error);
+      return false;
+    }
+  };
+
+  const handleScanPress = async () => {
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) {
+      Alert.alert('Permission required', 'Camera permission is needed to scan QR codes.');
+      return;
+    }
+    setScanning(true);
+    setShowScanner(true);
+  };
+
+  const handleScanSuccess = async (e: { data?: string }) => {
+    // Prevent multiple triggers
+    if (!scanning) return;
+    
+    setShowScanner(false);
+    setScanning(false);
+
+    const raw = e?.data;
+    if (!raw || typeof raw !== 'string') {
+      Alert.alert('Invalid QR code', 'Could not read QR code data.');
+      return;
+    }
+
+    const parts = raw.split('|');
+    if (parts.length !== 2) {
+      Alert.alert('Invalid QR code', 'QR code format must be username|persistent-uuid.');
+      return;
+    }
+
+    const scannedName = parts[0]?.trim();
+    const scannedPersistentId = parts[1]?.trim();
+
+    if (!scannedName || !scannedPersistentId) {
+      Alert.alert('Invalid QR code', 'Missing username or persistent ID.');
+      return;
+    }
+
+    // Prevent adding self as friend
+    if (persistentId && scannedPersistentId === persistentId) {
+      Alert.alert('Info', 'This is your own QR code.');
+      return;
+    }
+
+    try {
+      const alreadyFriend = await StorageService.isFriend(scannedPersistentId);
+
+      if (alreadyFriend) {
         Alert.alert(
-            'Clear All Data',
-            'This will delete your username, friends list, and all app data. Are you sure?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Clear',
-                    style: 'destructive',
-                    onPress: async () => {
-                        await AsyncStorage.clear();
-                        Alert.alert('Success', 'All data cleared. Please restart the app.');
-                    }
-                }
-            ]
+          'Meshage',
+          `${scannedName} is already in your friends list.`,
         );
-    };
+        return;
+      }
 
-    const formatDeviceId = (id: string) => {
-        // Show first 8 and last 4 characters for readability
-        if (id.length > 12) {
-            return `${id.substring(0, 8)}...${id.substring(id.length - 4)}`;
-        }
-        return id;
-    };
+      // Add friend logic
+      await StorageService.addFriendRequest({
+        persistentId: scannedPersistentId,
+        displayName: scannedName,
+        deviceAddress: '',
+        timestamp: Date.now(),
+        type: 'outgoing',
+      });
 
-    return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            {loading ? (
-                <View style={styles.loadingContainer}>
-                    <Text style={styles.loadingText}>Loading...</Text>
+      await StorageService.addFriend({
+        persistentId: scannedPersistentId,
+        displayName: scannedName,
+        deviceAddress: '',
+      });
+
+      Alert.alert(
+        'Friend linked',
+        `${scannedName} will be added as your friend once you are connected on Broadcast.`,
+      );
+    } catch (error) {
+      console.error('Error handling QR scan result:', error);
+      Alert.alert('Error', 'Something went wrong handling the scanned code.');
+    }
+  };
+
+  const handleMoreInfo = () => {
+    // This is why you need the file below!
+    navigation.navigate('MoreInfoPage'); 
+  };
+
+  const qrValue = persistentId
+    ? `${userName || 'User'}|${persistentId}`
+    : '';
+
+  return (
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.contentContainer}>
+        <View style={styles.card}>
+          <View style={styles.cardContent}>
+            <Text style={styles.userName}>{userName || 'User'}</Text>
+            <Text style={styles.userId}>ID · {persistentId ? persistentId.split('-')[0] : '...'}</Text>
+
+            <View style={styles.scanButtonContainer}>
+              <TouchableOpacity
+                style={styles.scanIconButton}
+                onPress={handleScanPress}
+                disabled={scanning}
+                activeOpacity={0.7}
+              >
+                <Svg width="24" height="24" viewBox="0 0 24 24">
+                  <Path
+                    fill="#060606ff"
+                    d="M17 22v-2h3v-3h2v3.5c0 .4-.2.7-.5 1s-.7.5-1 .5zM7 22H3.5c-.4 0-.7-.2-1-.5s-.5-.7-.5-1V17h2v3h3zM17 2h3.5c.4 0 .7.2 1 .5s.5.6.5 1V7h-2V4h-3zM7 2v2H4v3H2V3.5c0-.4.2-.7.5-1s.6-.5 1-.5zm12 9H5v2h14z"
+                  />
+                </Svg>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.qrContainer}>
+              {qrValue ? (
+                <QRCode
+                  value={qrValue}
+                  size={260}
+                />
+              ) : (
+                <View style={styles.qrPlaceholder}>
+                  <Text style={styles.qrPlaceholderText}>Generating QR...</Text>
                 </View>
-            ) : (
-                <>
-                    {/* User Profile Section */}
-                    <View style={styles.profileSection}>
-                        <View style={styles.avatarContainer}>
-                            <Text style={styles.avatarText}>
-                                {username.charAt(0).toUpperCase()}
-                            </Text>
-                        </View>
-                        <Text style={styles.name}>{username}</Text>
-                        <Text style={styles.subtitle}>Mesh Network User</Text>
-                    </View>
+              )}
+            </View>
+          </View>
+        </View>
 
-                    {/* QR Code Section */}
-                    <View style={styles.qrSection}>
-                        <Text style={styles.sectionTitle}>Your QR Code</Text>
-                        <Text style={styles.sectionSubtitle}>
-                            Share this with friends to connect
-                        </Text>
-                        <View style={styles.qrContainer}>
-                            <QRCode 
-                                value={persistentId} 
-                                size={200}
-                                backgroundColor="white"
-                            />
-                        </View>
-                        <Text style={styles.qrLabel}>Scan to add me as friend</Text>
-                    </View>
+        <View style={styles.infoCard}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoText}>Stay connected to the network</Text>
 
-                    {/* Device Info Section */}
-                    <View style={styles.infoSection}>
-                        <Text style={styles.sectionTitle}>Device Information - for testing</Text>
-                        
-                        <View style={styles.infoCard}>
-                            <View style={styles.infoRow}>
-                                <Text style={styles.infoLabel}>Username:</Text>
-                                <Text style={styles.infoValue}>{username}</Text>
-                            </View>
-                            
-                            <View style={styles.infoDivider} />
-                            
-                            <View style={styles.infoRow}>
-                                <Text style={styles.infoLabel}>Full UUID:</Text>
-                                <Text style={styles.infoValueTiny} numberOfLines={2}>
-                                    {persistentId}
-                                </Text>
-                            </View>
-                            
-                            <View style={styles.infoDivider} />
-                            
-                            <View style={styles.infoRow}>
-                                <Text style={styles.infoLabel}>Session Local ID:</Text>
-                                <Text style={styles.infoValueSmall} numberOfLines={1}>
-                                    {endpointId}
-                                </Text>
-                            </View>
-                            
-                            <View style={styles.infoDivider} />
-                            
-                            <View style={styles.infoRow}>
-                                <Text style={styles.infoLabel}>Device Identifier:</Text>
-                                <Text style={styles.infoValueTiny} numberOfLines={2}>
-                                    {deviceIdentifier}
-                                </Text>
-                            </View>
-                            
-                            <View style={styles.infoDivider} />
-                            
-                            <View style={styles.infoRow}>
-                                <Text style={styles.infoLabel}>Friends:</Text>
-                                <Text style={styles.infoValue}>{friendsCount}</Text>
-                            </View>
-                            
-                            <View style={styles.infoDivider} />
-                            
-                            <View style={styles.infoRow}>
-                                <Text style={styles.infoLabel}>Friend Requests:</Text>
-                                <Text style={styles.infoValue}>{friendRequestsCount}</Text>
-                            </View>
-                            
-                            <View style={styles.infoNote}>
-                                <Text style={styles.infoNoteText}>
-                                    💡 Real endpoint IDs (like "2mxk") are shown in the peer list
-                                </Text>
-                            </View>
-                        </View>
-                    </View>
+            <TouchableOpacity
+              style={[
+                styles.toggleButton,
+                isConnected && styles.toggleButtonActive
+              ]}
+              onPress={() => setIsConnected(!isConnected)}
+              activeOpacity={0.8}
+            >
+              <Animated.View
+                style={[
+                  styles.toggleCircle,
+                  isConnected && styles.toggleCircleActive
+                ]}
+              >
+                <Ionicons
+                  name="globe-outline"
+                  size={18}
+                  color={isConnected ? "#f59e0b" : "#666666"}
+                  style={styles.globeIcon}
+                />
+              </Animated.View>
+            </TouchableOpacity>
+          </View>
 
-                    {/* Network Info Card */}
-                    <View style={styles.card}>
-                        <Text style={styles.cardTitle}>📡 Mesh Network Status</Text>
-                        <Text style={styles.cardText}>
-                            Stay connected to discover nearby devices and chat with friends.
-                        </Text>
-                        <Text style={styles.warningText}>
-                            ⚠️ Disconnecting will stop message delivery
-                        </Text>
-                    </View>
+          <View style={styles.warningContainer}>
+            <Text style={styles.warningText}>
+              WARNING:{' '}
+              <Text style={styles.warningDescription}>
+                Disconnecting will lead to loss in messages and connectivity.
+              </Text>
+            </Text>
+          </View>
+        </View>
 
-                    {/* Actions */}
-                    <View style={styles.actionsSection}>
-                        <TouchableOpacity 
-                            style={styles.dangerButton}
-                            onPress={handleClearData}
-                        >
-                            <Text style={styles.dangerButtonText}>Clear All Data</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.dangerHint}>
-                            This will reset the app to initial state
-                        </Text>
-                    </View>
-                </>
-            )}
-        </ScrollView>
-    );
-};
+        <TouchableOpacity
+          style={styles.moreInfoButton}
+          onPress={handleMoreInfo}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.moreInfoButtonText}>More Info</Text>
+        </TouchableOpacity>
+      </ScrollView>
+
+      {showScanner && (
+        <View style={styles.scannerOverlay}>
+          <View style={styles.scannerContainer}>
+            <Camera
+              style={styles.scannerCamera}
+              scanBarcode={true}
+              onReadCode={(event: any) => {
+                 const value = event?.nativeEvent?.codeStringValue;
+                 if (value) handleScanSuccess({ data: value });
+              }}
+              showFrame={false} // We draw our own custom frame below
+            />
+
+            <View pointerEvents="none" style={styles.scannerFrameOverlay}>
+              <View style={styles.scannerMaskTop} />
+              <View style={styles.scannerMaskBottom} />
+              <View style={styles.scannerMaskLeft} />
+              <View style={styles.scannerMaskRight} />
+              <View style={styles.scannerInnerSquare} />
+              <View style={[styles.scannerCorner, styles.scannerCornerTopLeft]} />
+              <View style={[styles.scannerCorner, styles.scannerCornerTopRight]} />
+              <View style={[styles.scannerCorner, styles.scannerCornerBottomLeft]} />
+              <View style={[styles.scannerCorner, styles.scannerCornerBottomRight]} />
+            </View>
+
+            <View
+              style={{
+                position: 'absolute',
+                bottom: 40,
+                alignSelf: 'center',
+              }}
+            >
+              <TouchableOpacity
+                style={styles.scannerCancelButton}
+                onPress={() => {
+                  setShowScanner(false);
+                  setScanning(false);
+                }}
+              >
+                <Text style={styles.scannerCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#f5f5f5',
-    },
-    contentContainer: {
-        paddingBottom: 40,
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 40,
-    },
-    loadingText: {
-        fontSize: 16,
-        color: '#666',
-    },
-    profileSection: {
-        alignItems: 'center',
-        paddingVertical: 30,
-        backgroundColor: '#fff',
-        borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
-    },
-    avatarContainer: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: '#007aff',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 15,
-    },
-    avatarText: {
-        fontSize: 36,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
-    name: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#222',
-        marginBottom: 5,
-    },
-    subtitle: {
-        fontSize: 14,
-        color: '#666',
-    },
-    qrSection: {
-        backgroundColor: '#fff',
-        padding: 20,
-        marginTop: 20,
-        marginHorizontal: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        shadowOffset: { width: 0, height: 2 },
-    },
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#222',
-        marginBottom: 5,
-    },
-    sectionSubtitle: {
-        fontSize: 14,
-        color: '#666',
-        marginBottom: 20,
-        textAlign: 'center',
-    },
-    qrContainer: {
-        padding: 20,
-        backgroundColor: '#fff',
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#e0e0e0',
-    },
-    qrLabel: {
-        marginTop: 15,
-        fontSize: 12,
-        color: '#666',
-    },
-    infoSection: {
-        marginTop: 20,
-        marginHorizontal: 16,
-    },
-    infoCard: {
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        padding: 16,
-        marginTop: 10,
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        shadowOffset: { width: 0, height: 2 },
-    },
-    infoRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: 12,
-    },
-    infoLabel: {
-        fontSize: 14,
-        color: '#666',
-        fontWeight: '500',
-    },
-    infoValue: {
-        fontSize: 16,
-        color: '#222',
-        fontWeight: '600',
-    },
-    infoValueSmall: {
-        fontSize: 12,
-        color: '#222',
-        fontWeight: '600',
-        maxWidth: '60%',
-    },
-    infoValueTiny: {
-        fontSize: 10,
-        color: '#666',
-        maxWidth: '60%',
-        textAlign: 'right',
-    },
-    infoDivider: {
-        height: 1,
-        backgroundColor: '#e0e0e0',
-    },
-    infoNote: {
-        marginTop: 12,
-        padding: 12,
-        backgroundColor: '#f0f8ff',
-        borderRadius: 8,
-        borderLeftWidth: 3,
-        borderLeftColor: '#007aff',
-    },
-    infoNoteText: {
-        fontSize: 12,
-        color: '#666',
-        lineHeight: 18,
-    },
-    card: {
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        padding: 20,
-        marginTop: 20,
-        marginHorizontal: 16,
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        shadowOffset: { width: 0, height: 2 },
-    },
-    cardTitle: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        marginBottom: 10,
-        color: '#222',
-    },
-    cardText: {
-        fontSize: 14,
-        color: '#666',
-        lineHeight: 20,
-        marginBottom: 10,
-    },
-    warningText: {
-        fontSize: 13,
-        color: '#ff9500',
-        fontWeight: '500',
-    },
-    actionsSection: {
-        marginTop: 30,
-        marginHorizontal: 16,
-        alignItems: 'center',
-    },
-    dangerButton: {
-        backgroundColor: '#ff3b30',
-        paddingVertical: 14,
-        paddingHorizontal: 40,
-        borderRadius: 8,
-        width: '100%',
-        alignItems: 'center',
-    },
-    dangerButtonText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    dangerHint: {
-        marginTop: 10,
-        fontSize: 12,
-        color: '#999',
-        textAlign: 'center',
-    },
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  contentContainer: {
+    alignItems: 'center',
+    padding: 16,
+    paddingTop: 32,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    marginBottom: 24,
+  },
+  cardContent: {
+    alignItems: 'center',
+  },
+  userName: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#262626',
+    marginBottom: 4,
+  },
+  userId: {
+    fontSize: 12,
+    color: '#737373',
+  },
+  scanButtonContainer: {
+    width: '100%',
+    alignItems: 'flex-end',
+    marginBottom: 10,
+  },
+  scanIconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#ede3e3ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  qrContainer: {
+    width: 280,
+    height: 280,
+    borderWidth: 4,
+    borderColor: '#e5e5e5',
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#ffffff',
+    alignSelf: 'center',
+  },
+  qrPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrPlaceholderText: {
+    fontSize: 14,
+    color: '#737373',
+  },
+  infoCard: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    marginBottom: 24,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  infoText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#262626',
+    flex: 1,
+  },
+  toggleButton: {
+    width: 64,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e5e5',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    position: 'absolute',
+    left: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ translateX: 0 }],
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  toggleButtonActive: {
+    backgroundColor: '#f59e0b',
+  },
+  toggleCircleActive: {
+    transform: [{ translateX: 32 }],
+  },
+  globeIcon: {
+    marginLeft: 0,
+  },
+  warningContainer: {
+    marginTop: 4,
+  },
+  warningText: {
+    fontSize: 12,
+    color: '#dc2626',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  warningDescription: {
+    fontSize: 12,
+    color: '#737373',
+    fontWeight: '500',
+  },
+  moreInfoButton: {
+    width: '100%',
+    maxWidth: 400,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#262626',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  moreInfoButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#ffffff',
+  },
+  scannerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999, // Ensure it sits on top
+  },
+  scannerContainer: {
+    width: '100%',
+    height: '100%',
+  },
+  scannerCamera: {
+    width: '100%',
+    height: '100%',
+  },
+  scannerFrameOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scannerInnerSquare: {
+    width: 220,
+    height: 220,
+    borderRadius: 0,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.15)',
+  },
+  scannerMaskTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: '50%',
+    marginBottom: 110,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+  },
+  scannerMaskBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    top: '50%',
+    marginTop: 110,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+  },
+  scannerMaskLeft: {
+    position: 'absolute',
+    left: 0,
+    top: '50%',
+    bottom: '50%',
+    marginTop: -110,
+    marginBottom: -110,
+    right: '50%',
+    marginRight: 110,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+  },
+  scannerMaskRight: {
+    position: 'absolute',
+    right: 0,
+    top: '50%',
+    bottom: '50%',
+    marginTop: -110,
+    marginBottom: -110,
+    left: '50%',
+    marginLeft: 110,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+  },
+  scannerCorner: {
+    position: 'absolute',
+    width: 52,
+    height: 52,
+    borderColor: '#f59e0b',
+    borderWidth: 5,
+    borderRadius: 0,
+  },
+  scannerCornerTopLeft: {
+    top: '50%',
+    left: '50%',
+    marginTop: -130,
+    marginLeft: -130,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+  },
+  scannerCornerTopRight: {
+    top: '50%',
+    right: '50%',
+    marginTop: -130,
+    marginRight: -130,
+    borderLeftWidth: 0,
+    borderBottomWidth: 0,
+  },
+  scannerCornerBottomLeft: {
+    bottom: '50%',
+    left: '50%',
+    marginBottom: -130,
+    marginLeft: -130,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
+  },
+  scannerCornerBottomRight: {
+    bottom: '50%',
+    right: '50%',
+    marginBottom: -130,
+    marginRight: -130,
+    borderLeftWidth: 0,
+    borderTopWidth: 0,
+  },
+  scannerCancelButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+  },
+  scannerCancelText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111827',
+  },
 });
-
-export default SettingsScreen;

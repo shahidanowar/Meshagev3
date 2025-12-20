@@ -8,6 +8,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons'; // Ensure you have th
 import ChatScreen from '../screens/Chats/ChatScreen';
 import FriendsScreen from '../screens/Friends/FriendsScreen'; // Used as a Tab here
 import SettingsScreen from '../screens/Settings/SettingsScreen';
+import Header from '../components/Header';
 
 export type TabParamList = {
   Chats: undefined;
@@ -70,7 +71,7 @@ export const MainTabNavigator = () => {
   return (
     <View style={styles.mainContainer}>
       {/* If you have a custom Header component, place it here: <Header /> */}
-      
+      <Header/>
       <Tab.Navigator
         screenOptions={{ headerShown: false }}
         tabBar={(props) => <CustomBottomNavigation {...props} />}
