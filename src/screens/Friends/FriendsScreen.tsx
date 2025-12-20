@@ -98,15 +98,14 @@ const FriendsScreen = () => {
         activeOpacity={0.7}>
         <View style={styles.friendInfo}>
           <Text style={styles.friendName}>⭐ {item.displayName}</Text>
-          <Text style={styles.friendId}>ID: {item.persistentId}</Text>
           <Text style={styles.lastSeen}>Added: {lastSeenText}</Text>
         </View>
         <View style={styles.friendActions}>
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={styles.chatButton}
             onPress={() => handleOpenChat(item)}>
             <Text style={styles.chatButtonText}>💬</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
           <TouchableOpacity
             style={styles.removeButton}
             onPress={(e) => {

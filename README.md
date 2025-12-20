@@ -374,39 +374,6 @@ The project follows **separation of concerns** pattern:
 
 ---
 
-## 🐛 Troubleshooting
-
-### Devices not discovering each other
-
-- Ensure **Location** is enabled (required for Nearby Connections)
-- Grant all required permissions
-- Check that devices are within **100 meters**
-- Restart the app on both devices
-- Check Android version (requires Android 6.0+)
-
-### Messages not being received
-
-- Check if devices are connected (peer list)
-- Verify network status in app
-- Check logs for errors: `adb logcat | grep Meshage`
-- Ensure message format is correct
-
-### App crashes on startup
-
-- Clear app data: Settings → Apps → Meshage → Clear Data
-- Reinstall the app
-- Check Android version compatibility
-- Review logcat for native errors
-
-### Friend requests not working
-
-- Verify both devices have unique persistent IDs
-- Check that devices are connected to mesh
-- Ensure friend request message format is correct
-- Check AsyncStorage for corrupted data
-
----
-
 ## 📊 Performance
 
 - **Discovery Time**: 2-5 seconds
@@ -444,20 +411,6 @@ Contributions are welcome! Please follow these steps:
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 👨‍💻 Author
-
-**Your Name**
-- GitHub: [@yourusername](https://github.com/yourusername)
-- Email: your.email@example.com
 
 ---
 

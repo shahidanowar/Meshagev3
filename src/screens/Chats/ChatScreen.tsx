@@ -1,323 +1,641 @@
-import React from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
-  Text,
-  View,
-  TouchableOpacity,
-  FlatList,
-  Platform,
-  StatusBar,
-  ActivityIndicator,
-  TextInput,
-  KeyboardAvoidingView,
-  ScrollView,
-  Modal,
-  RefreshControl,
+    View,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    ScrollView,
+    StyleSheet,
+    KeyboardAvoidingView,
+    Platform,
+    Animated,
+    StatusBar,
+    Dimensions
 } from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { Send } from 'lucide-react-native'; // Ensure you have lucide-react-native or use Ionicons
+
+// Components and Hooks
+import NearbyDevicesModal from './NearbyDevicesModal'; // Ensure this path is correct based on your file structure
 import { useChatScreen } from './useChatScreen';
-import { styles } from './ChatScreen.styles';
 
-const ChatScreen = () => {
-  const {
-    status,
-    peers,
-    connectedPeers,
-    messages,
-    messageText,
-    messagesEndRef,
-    username,
-    showPeerModal,
-    friendsList,
-    friendRequests,
-    isRefreshingFriends,
-    setMessageText,
-    setShowPeerModal,
-    handleConnectToPeer,
-    handleSendMessage,
-    handleAddFriend,
-    handleAcceptFriendRequest,
-    handleRejectFriendRequest,
-    handleRefreshPeerModal,
-    getPeerStatusText,
-    isFriend,
-  } = useChatScreen();
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-  const [showFriendRequestsModal, setShowFriendRequestsModal] = React.useState(false);
+const ChatScreen = ({ navigation }: any) => {
+    // 1. Logic Hook
+    const {
+        status,
+        peers,
+        connectedPeers,
+        messages,
+        messageText,
+        messagesEndRef,
+        username,
+        showPeerModal,
+        friendRequests,
+        setMessageText,
+        setShowPeerModal,
+        handleSendMessage,
+        handleAddFriend,
+        handleAcceptFriendRequest,
+        handleRejectFriendRequest,
+        isFriend,
+    } = useChatScreen();
 
-  const renderPeer = ({ item }: { item: any }) => {
-    const isConnectedPeer = connectedPeers.includes(item.deviceAddress);
-    const isAlreadyFriend = isFriend(item.persistentId);
-    
-    // Check if there's a pending request
-    const pendingRequest = friendRequests.find(r => r.persistentId === item.persistentId);
-    const hasOutgoingRequest = pendingRequest?.type === 'outgoing';
-    const hasIncomingRequest = pendingRequest?.type === 'incoming';
-    
+    // 2. Animation State for Friend Requests Sheet
+    const [showRequests, setShowRequests] = useState(false);
+    const [requestsVisible, setRequestsVisible] = useState(false);
+    const requestsTranslateY = useRef(new Animated.Value(300)).current;
+    const requestsBackdropOpacity = useRef(new Animated.Value(0)).current;
+
+    // 3. Prepare Data for NearbyDevicesModal
+    const devicesForModal = peers.map((peer: any) => ({
+        id: peer.deviceAddress,
+        name: peer.displayName || peer.deviceName || 'Unknown',
+        isFriend: isFriend(peer.persistentId),
+        isConnected: connectedPeers.includes(peer.deviceAddress),
+        persistentId: peer.persistentId, // Passing this through for navigation
+    }));
+
+    const pendingRequestsCount = friendRequests.filter((r: any) => r.type === 'incoming').length;
+
+    // 4. Friend Request Animation Logic
+    useEffect(() => {
+        if (showRequests) {
+            setRequestsVisible(true);
+            Animated.parallel([
+                Animated.spring(requestsTranslateY, {
+                    toValue: 0,
+                    useNativeDriver: true,
+                    tension: 65,
+                    friction: 11,
+                }),
+                Animated.timing(requestsBackdropOpacity, {
+                    toValue: 1,
+                    duration: 250,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        } else {
+            Animated.parallel([
+                Animated.timing(requestsTranslateY, {
+                    toValue: 300,
+                    duration: 200,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(requestsBackdropOpacity, {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: true,
+                }),
+            ]).start(() => {
+                setRequestsVisible(false);
+            });
+        }
+    }, [showRequests]);
+
+    // 5. Handlers
+    const handleDevicesPress = () => {
+        setShowPeerModal(true);
+    };
+
+    const handlePrivateChat = (deviceId: string) => {
+        // Find the full peer object
+        const peer = peers.find((p: any) => p.deviceAddress === deviceId);
+        if (peer && peer.persistentId) {
+            setShowPeerModal(false);
+            // Navigate to the PersonalChat screen defined in AppNavigator
+            navigation.navigate('PersonalChat', {
+                friendId: peer.persistentId,
+                friendName: peer.displayName || peer.deviceName,
+                friendAddress: peer.deviceAddress
+            });
+        }
+    };
+
+    const handleAddFriendWrapper = (deviceId: string) => {
+        const peer = peers.find((p: any) => p.deviceAddress === deviceId);
+        if (peer) {
+            handleAddFriend(peer);
+        }
+    };
+
     return (
-      <View style={styles.peerItem}>
-        <View style={styles.peerInfo}>
-          <Text style={styles.peerName}>
-            {item.displayName || item.deviceName}
-            {isAlreadyFriend && ' ⭐'}
-          </Text>
-          <Text style={styles.peerAddress}>{item.deviceAddress}</Text>
-          <Text style={[
-            styles.peerStatus,
-            isConnectedPeer && { color: '#34c759' }
-          ]}>
-            {isConnectedPeer ? '✓ Connected' : getPeerStatusText(item.status)}
-          </Text>
-        </View>
-        {!isAlreadyFriend && !hasOutgoingRequest && !hasIncomingRequest && item.persistentId && isConnectedPeer ? (
-          <TouchableOpacity
-            style={styles.addFriendButton}
-            onPress={() => {
-              handleAddFriend(item);
-              setShowPeerModal(false);
-            }}>
-            <Text style={styles.addFriendButtonText}>Add Friend</Text>
-          </TouchableOpacity>
-        ) : hasOutgoingRequest ? (
-          <View style={styles.pendingBadge}>
-            <Text style={styles.pendingBadgeText}>Request Sent</Text>
-          </View>
-        ) : hasIncomingRequest ? (
-          <View style={styles.incomingBadge}>
-            <Text style={styles.incomingBadgeText}>Respond in 🤝</Text>
-          </View>
-        ) : isAlreadyFriend ? (
-          <View style={styles.friendBadge}>
-            <Text style={styles.friendBadgeText}>Friend</Text>
-          </View>
-        ) : null}
-      </View>
-    );
-  };
+        <View style={styles.container}>
+            <StatusBar barStyle="dark-content" backgroundColor="#F5F5F5" />
 
-  const renderMessage = ({ item }: { item: any }) => {
-    return (
-      <View
-        style={[
-          styles.messageItem,
-          item.isSent ? styles.sentMessage : styles.receivedMessage,
-        ]}>
-        <Text style={styles.messageSender}>
-          {item.isSent? 'You' : (item.senderName || item.fromAddress || 'Unknown')}
-        </Text>
-        <Text style={styles.messageText}>{item.text}</Text>
-        <Text style={styles.messageTime}>
-          {new Date(item.timestamp).toLocaleTimeString()}
-        </Text>
-      </View>
-    );
-  };
+            {/* --- HEADER --- */}
+            <View style={styles.statusBar}>
+                <View>
+                    <Text style={styles.statusLabel}>User: <Text style={styles.statusValue}>{username}</Text></Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={styles.statusLabel}>Status: </Text>
+                        <Text style={styles.statusValue}>{status}</Text>
+                    </View>
+                </View>
 
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.username}>{username}</Text>
-          
-          <View style={styles.headerButtons}>
-            {/* Friend Requests Button - Only show incoming requests count */}
-            {friendRequests.filter(r => r.type === 'incoming').length > 0 && (
-              <TouchableOpacity
-                style={styles.friendRequestButton}
-                onPress={() => setShowFriendRequestsModal(true)}>
-                <Text style={styles.friendRequestButtonText}>
-                  🤝 {friendRequests.filter(r => r.type === 'incoming').length}
-                </Text>
-              </TouchableOpacity>
+                <View style={styles.statusRight}>
+                    {/* Peers Button */}
+                    <TouchableOpacity
+                        onPress={handleDevicesPress}
+                        activeOpacity={0.7}
+                        style={styles.statusDotWrapper}
+                    >
+                        <View style={[
+                            styles.statusDot,
+                            connectedPeers.length > 0 && styles.statusDotConnected
+                        ]} />
+                        <Text style={[
+                            styles.statusCount,
+                            connectedPeers.length > 0 && styles.statusCountConnected
+                        ]}>
+                            {peers.length}
+                        </Text>
+                    </TouchableOpacity>
+
+                    {/* Notification/Requests Button */}
+                    {pendingRequestsCount > 0 && (
+                        <TouchableOpacity
+                            onPress={() => setShowRequests(true)}
+                            activeOpacity={0.7}
+                        >
+                            <View style={styles.notificationBadge}>
+                                <Text style={styles.notificationText}>
+                                    {pendingRequestsCount > 9 ? '9+' : pendingRequestsCount}
+                                </Text>
+                            </View>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            </View>
+
+            {/* --- CHAT AREA --- */}
+            <KeyboardAvoidingView
+                style={styles.flexContainer}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+            >
+                <ScrollView
+                    ref={messagesEndRef}
+                    style={styles.scrollView}
+                    contentContainerStyle={styles.scrollContent}
+                    showsVerticalScrollIndicator={false}
+                    onContentSizeChange={() =>
+                        messagesEndRef.current?.scrollToEnd({ animated: true })
+                    }
+                >
+                    {messages.length === 0 ? (
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyText}>
+                                {connectedPeers.length > 0
+                                    ? 'No messages yet. Start the conversation!'
+                                    : 'Waiting for peers to connect...\nDiscovering nearby devices...'}
+                            </Text>
+                        </View>
+                    ) : (
+                        messages.map((msg: any) => (
+                            <View
+                                key={msg.id}
+                                style={[
+                                    styles.messageRow,
+                                    msg.isSent ? styles.sentRow : styles.receivedRow,
+                                ]}
+                            >
+                                {!msg.isSent && <View style={styles.avatar} />}
+                                <View style={styles.messageContainer}>
+                                    {!msg.isSent && (
+                                        <Text style={styles.senderName}>
+                                            {msg.senderName || msg.fromAddress || 'Unknown'}
+                                        </Text>
+                                    )}
+                                    <View
+                                        style={[
+                                            styles.messageBubble,
+                                            msg.isSent
+                                                ? styles.sentBubble
+                                                : styles.receivedBubble,
+                                        ]}
+                                    >
+                                        <Text style={styles.messageText}>{msg.text}</Text>
+                                    </View>
+                                    <Text style={styles.messageTime}>
+                                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </Text>
+                                </View>
+                                {msg.isSent && <View style={styles.avatar} />}
+                            </View>
+                        ))
+                    )}
+                </ScrollView>
+
+                {/* --- INPUT BAR --- */}
+                <View style={styles.inputContainer}>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Type a message..."
+                        placeholderTextColor="#888"
+                        value={messageText}
+                        onChangeText={setMessageText}
+                        onSubmitEditing={handleSendMessage}
+                        returnKeyType="send"
+                    />
+                    <TouchableOpacity
+                        style={[
+                            styles.sendButton,
+                            !messageText.trim() && styles.sendButtonDisabled
+                        ]}
+                        onPress={handleSendMessage}
+                        disabled={!messageText.trim()}
+                    >
+                        <Send size={20} color="#000" />
+                    </TouchableOpacity>
+                </View>
+            </KeyboardAvoidingView>
+
+            {/* --- NEARBY DEVICES MODAL --- */}
+            <NearbyDevicesModal
+                visible={showPeerModal}
+                onClose={() => setShowPeerModal(false)}
+                devices={devicesForModal}
+                onMessage={handlePrivateChat} // Navigates to PersonalChat
+                onAddFriend={handleAddFriendWrapper}
+            />
+
+            {/* --- FRIEND REQUESTS OVERLAY --- */}
+            {requestsVisible && (
+                <Animated.View style={[styles.requestsOverlay, { opacity: requestsBackdropOpacity }]}>
+                    <TouchableOpacity
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => setShowRequests(false)}
+                    />
+                    <Animated.View style={[styles.requestsCard, { transform: [{ translateY: requestsTranslateY }] }]}>
+                        <View style={styles.requestsDragHandleContainer}>
+                            <View style={styles.requestsDragHandle} />
+                        </View>
+                        <View style={styles.requestsHeader}>
+                            <View style={styles.requestsHeaderTextContainer}>
+                                <Text style={styles.requestsTitle}>
+                                    Friend Requests{pendingRequestsCount > 0 ? ` (${pendingRequestsCount})` : ''}
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                style={styles.requestsCloseIcon}
+                                onPress={() => setShowRequests(false)}
+                            >
+                                <Ionicons name="close" size={24} color="#F59E0B" />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* List of Requests */}
+                        {friendRequests.filter((r: any) => r.type === 'incoming').length === 0 ? (
+                            <Text style={styles.requestsEmpty}>No pending requests</Text>
+                        ) : (
+                            friendRequests
+                                .filter((r: any) => r.type === 'incoming')
+                                .map((request: any) => (
+                                    <View key={request.persistentId} style={styles.requestItem}>
+                                        <View style={styles.requestInfo}>
+                                            <Text style={styles.requestName}>{request.displayName}</Text>
+                                            <Text style={styles.requestId}>
+                                                ID · {(request.persistentId || '').substring(0, 8)}...
+                                            </Text>
+                                        </View>
+                                        <View style={styles.requestActions}>
+                                            <TouchableOpacity
+                                                style={styles.requestAccept}
+                                                onPress={() => handleAcceptFriendRequest(request)}
+                                            >
+                                                <Text style={styles.requestAcceptText}>Accept</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={styles.requestReject}
+                                                onPress={() => handleRejectFriendRequest(request)}
+                                            >
+                                                <Ionicons name="trash" size={16} color="#000" />
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                ))
+                        )}
+                    </Animated.View>
+                </Animated.View>
             )}
-            
-            {/* Peer List Button */}
-            <TouchableOpacity
-              style={styles.peerListButton}
-              onPress={() => setShowPeerModal(true)}>
-              <Text style={styles.peerListButtonText}>
-                👥 {peers.length}
-              </Text>
-            </TouchableOpacity>
-          </View>
         </View>
-        
-        <Text style={styles.status}>status: {status}</Text>
-      </View>
-
-      {/* Chat Interface - Always Visible */}
-      <KeyboardAvoidingView
-        style={styles.chatContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}>
-        {/* Messages List */}
-        <ScrollView
-          ref={messagesEndRef}
-          style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContent}
-          onContentSizeChange={() =>
-            messagesEndRef.current?.scrollToEnd({ animated: true })
-          }>
-          {messages.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                {connectedPeers.length > 0 
-                  ? 'No messages yet. Start chatting!'
-                  : 'Waiting for peers to connect...\nYou can start typing below!'}
-              </Text>
-            </View>
-          ) : (
-            messages.map(message => (
-              <View key={message.id}>
-                {renderMessage({ item: message })}
-              </View>
-            ))
-          )}
-        </ScrollView>
-
-        {/* Message Input - Always Visible */}
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.messageInput}
-            placeholder={"Type a message..."}
-            placeholderTextColor="#8e8e93"
-            value={messageText}
-            onChangeText={setMessageText}
-            onSubmitEditing={handleSendMessage}
-            returnKeyType="send"
-            editable={true}
-          />
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              !messageText.trim() && styles.buttonDisabled
-            ]}
-            onPress={handleSendMessage}
-            disabled={!messageText.trim()}>
-            <Text style={styles.sendButtonText}>Send</Text>
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-
-      {/* Peer List Modal */}
-      <Modal
-        visible={showPeerModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowPeerModal(false)}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            {/* Modal Header */}
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Nearby Devices</Text>
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setShowPeerModal(false)}>
-                <Text style={styles.closeButtonText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Peer List with Pull-to-Refresh */}
-            <FlatList
-              data={peers}
-              extraData={{ connectedPeers, friendRequests, friendsList }}
-              renderItem={renderPeer}
-              keyExtractor={item => item.deviceAddress}
-              refreshControl={
-                <RefreshControl
-                  refreshing={isRefreshingFriends}
-                  onRefresh={handleRefreshPeerModal}
-                  colors={['#007AFF']}
-                  tintColor="#007AFF"
-                  title="Refreshing friends..."
-                  titleColor="#8e8e93"
-                />
-              }
-              ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>
-                    No peers found nearby. Auto-discovery is running...
-                  </Text>
-                </View>
-              }
-              contentContainerStyle={styles.modalListContainer}
-            />
-            
-            {/* Pull-to-refresh hint */}
-            <View style={styles.refreshHint}>
-              <Text style={styles.refreshHintText}>
-                💡 Pull down to refresh friends list
-              </Text>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Friend Requests Modal */}
-      <Modal
-        visible={showFriendRequestsModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowFriendRequestsModal(false)}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            {/* Modal Header */}
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Friend Requests</Text>
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setShowFriendRequestsModal(false)}>
-                <Text style={styles.closeButtonText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Friend Requests List - Only show incoming requests */}
-            <FlatList
-              data={friendRequests.filter(r => r.type === 'incoming')}
-              renderItem={({ item }) => (
-                <View style={styles.friendRequestItem}>
-                  <View style={styles.peerInfo}>
-                    <Text style={styles.peerName}>{item.displayName}</Text>
-                    <Text style={styles.peerAddress}>ID: {item.persistentId}</Text>
-                    <Text style={styles.peerStatus}>
-                      {new Date(item.timestamp).toLocaleString()}
-                    </Text>
-                  </View>
-                  <View style={styles.friendRequestButtons}>
-                    <TouchableOpacity
-                      style={styles.acceptButton}
-                      onPress={() => {
-                        handleAcceptFriendRequest(item);
-                        setShowFriendRequestsModal(false);
-                      }}>
-                      <Text style={styles.acceptButtonText}>Accept</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.rejectButton}
-                      onPress={() => {
-                        handleRejectFriendRequest(item);
-                      }}>
-                      <Text style={styles.rejectButtonText}>Reject</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-              keyExtractor={item => item.persistentId}
-              ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>
-                    No friend requests
-                  </Text>
-                </View>
-              }
-              contentContainerStyle={styles.modalListContainer}
-            />
-          </View>
-        </View>
-      </Modal>
-    </View>
-  );
+    );
 };
+
+// --- STYLES (Matched to BroadcastScreen) ---
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#E5E5E5',
+    },
+    flexContainer: {
+        flex: 1,
+    },
+    // Header
+    statusBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#F5F5F5',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#ccc',
+        elevation: 2,
+    },
+    statusLabel: {
+        fontSize: 12,
+        color: '#666',
+        fontWeight: '600',
+    },
+    statusValue: {
+        fontSize: 12,
+        color: '#000',
+        fontWeight: '700',
+        marginLeft: 4,
+    },
+    statusRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    statusDotWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#fff',
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#ddd',
+    },
+    statusDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: '#EF4444',
+    },
+    statusDotConnected: {
+        backgroundColor: '#22C55E',
+    },
+    statusCount: {
+        fontSize: 12,
+        color: '#EF4444',
+        fontWeight: '700',
+    },
+    statusCountConnected: {
+        color: '#22C55E',
+    },
+    notificationBadge: {
+        minWidth: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#F59E0B',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 5,
+        borderWidth: 1,
+        borderColor: '#000',
+    },
+    notificationText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#000',
+    },
+
+    // Chat List
+    scrollView: {
+        flex: 1,
+    },
+    scrollContent: {
+        paddingVertical: 16,
+        paddingHorizontal: 16,
+        flexGrow: 1,
+    },
+    emptyContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 32,
+    },
+    emptyText: {
+        fontSize: 14,
+        color: '#666',
+        textAlign: 'center',
+        lineHeight: 20,
+    },
+    messageRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        marginBottom: 24,
+    },
+    sentRow: {
+        justifyContent: 'flex-end',
+    },
+    receivedRow: {
+        justifyContent: 'flex-start',
+    },
+    avatar: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: '#FFF',
+        borderWidth: 1,
+        borderColor: '#000',
+    },
+    messageContainer: {
+        marginHorizontal: 10,
+        maxWidth: '70%',
+    },
+    senderName: {
+        fontSize: 11,
+        color: '#666',
+        marginBottom: 4,
+        marginLeft: 4,
+    },
+    messageBubble: {
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderWidth: 1,
+        borderColor: '#000',
+        backgroundColor: '#FFF',
+    },
+    receivedBubble: {
+        transform: [{ skewX: '-10deg' }],
+        backgroundColor: '#fff',
+    },
+    sentBubble: {
+        transform: [{ skewX: '10deg' }],
+        backgroundColor: '#F59E0B', // Optional: Make sent bubbles amber like button
+    },
+    messageText: {
+        color: '#000',
+        fontSize: 14,
+        transform: [{ skewX: '0deg' }], // Counteract skew
+    },
+    messageTime: {
+        fontSize: 10,
+        color: '#888',
+        marginTop: 4,
+        alignSelf: 'flex-end',
+    },
+
+    // Input
+    inputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+        backgroundColor: '#F5F5F5',
+        borderTopWidth: 1,
+        borderTopColor: '#ccc',
+    },
+    input: {
+        flex: 1,
+        backgroundColor: '#FFF',
+        borderWidth: 1,
+        borderColor: '#000',
+        borderRadius: 20,
+        paddingHorizontal: 16,
+        height: 44,
+        fontSize: 14,
+        color: '#000',
+    },
+    sendButton: {
+        width: 44,
+        height: 44,
+        marginLeft: 8,
+        borderRadius: 22,
+        backgroundColor: '#F59E0B',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#000',
+    },
+    sendButtonDisabled: {
+        opacity: 0.5,
+        backgroundColor: '#ccc',
+    },
+
+    // Requests Overlay (Dark Mode Style to match BroadcastScreen)
+    requestsOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        justifyContent: 'flex-end',
+        backgroundColor: 'rgba(0,0,0,0.4)',
+    },
+    requestsCard: {
+        width: '100%',
+        maxHeight: '50%',
+        backgroundColor: '#292929', // Dark background for the card
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 24,
+        borderTopWidth: 1,
+        borderColor: '#000',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        elevation: 5,
+    },
+    requestsDragHandleContainer: {
+        alignItems: 'center',
+        paddingVertical: 8,
+    },
+    requestsDragHandle: {
+        width: 40,
+        height: 4,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 2,
+        opacity: 0.5,
+    },
+    requestsHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingBottom: 16,
+        marginBottom: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#333',
+    },
+    requestsHeaderTextContainer: {
+        flex: 1,
+    },
+    requestsCloseIcon: {
+        padding: 4,
+    },
+    requestsTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#E5E1DE',
+    },
+    requestsEmpty: {
+        fontSize: 14,
+        color: '#AAA',
+        textAlign: 'center',
+        marginTop: 20,
+    },
+    requestItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#FFF',
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        marginBottom: 8,
+    },
+    requestInfo: {
+        flex: 1,
+        paddingRight: 8,
+    },
+    requestName: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#000',
+    },
+    requestId: {
+        fontSize: 11,
+        color: '#666',
+        marginTop: 2,
+    },
+    requestActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    requestAccept: {
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        borderRadius: 20,
+        backgroundColor: '#F59E0B',
+        borderWidth: 1,
+        borderColor: '#000',
+    },
+    requestAcceptText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#000',
+    },
+    requestReject: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#EF4444',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#000',
+    },
+});
 
 export default ChatScreen;
