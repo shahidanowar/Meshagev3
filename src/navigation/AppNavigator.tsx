@@ -6,17 +6,20 @@ import { StorageService } from '../utils/storage';
 // Screens
 import Onboarding from '../screens/Onboarding/Onboarding';
 import PersonalChatScreen from '../screens/Friends/PersonalChatScreen';
+import FriendsScreen from '../screens/Friends/FriendsScreen';
 import { MainTabNavigator } from './MainTabNavigator';
 import MoreInfoPage from '../screens/Settings/MoreInfoPage';
 // Type Definitions
 export type RootStackParamList = {
     Onboarding: undefined;
     Main: undefined;
+    Friends: undefined;
     PersonalChat: {
         friendId: string;
         friendName: string;
         friendAddress?: string;
     };
+    MoreInfoPage: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -61,6 +64,17 @@ const AppNavigator = () => {
                 <Stack.Screen name="Onboarding" component={Onboarding} />
 
                 <Stack.Screen name="Main" component={MainTabNavigator} />
+
+                {/* Friends Screen with Modal Animation (v1.0 style) */}
+                <Stack.Screen
+                    name="Friends"
+                    component={FriendsScreen}
+                    options={{
+                        presentation: 'modal',
+                        animation: 'slide_from_bottom',
+                        headerShown: false
+                    }}
+                />
 
                 {/* Chat Detail Screen with Slide Animation */}
                 <Stack.Screen

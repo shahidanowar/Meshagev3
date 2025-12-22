@@ -2,23 +2,23 @@ import React from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Ionicons from 'react-native-vector-icons/Ionicons'; // Ensure you have this installed
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 // Screens
-import ChatScreen from '../screens/Chats/ChatScreen';
-import FriendsScreen from '../screens/Friends/FriendsScreen'; // Used as a Tab here
+import BroadcastScreen from '../screens/Chats/ChatScreen'; // ChatScreen is now used as Broadcast
+import ChatListScreen from '../screens/Chats/ChatListScreen'; // New Chat List with FAB
 import SettingsScreen from '../screens/Settings/SettingsScreen';
 import Header from '../components/Header';
 
 export type TabParamList = {
-  Chats: undefined;
-  Friends: undefined;
+  Broadcast: undefined;
+  Chat: undefined;
   Settings: undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
 
-/* ---------------------- CUSTOM BOTTOM NAV UI ---------------------- */
+/* ---------------------- CUSTOM BOTTOM NAV UI (v1.0 style) ---------------------- */
 function CustomBottomNavigation({ state, navigation }: any) {
   const currentRouteName = state.routes[state.index].name;
 
@@ -28,10 +28,10 @@ function CustomBottomNavigation({ state, navigation }: any) {
         {state.routes.map((route: any) => {
           const isFocused = route.name === currentRouteName;
 
-          // Map your routes to Icons
+          // Map routes to Icons (v1.0 style)
           let iconName = 'home';
-          if (route.name === 'Chats') iconName = 'chatbubble';
-          else if (route.name === 'Friends') iconName = 'people';
+          if (route.name === 'Broadcast') iconName = 'radio';
+          else if (route.name === 'Chat') iconName = 'chatbubble';
           else if (route.name === 'Settings') iconName = 'settings';
 
           const onPress = () => {
@@ -70,14 +70,18 @@ function CustomBottomNavigation({ state, navigation }: any) {
 export const MainTabNavigator = () => {
   return (
     <View style={styles.mainContainer}>
-      {/* If you have a custom Header component, place it here: <Header /> */}
-      <Header/>
+      <Header />
       <Tab.Navigator
         screenOptions={{ headerShown: false }}
         tabBar={(props) => <CustomBottomNavigation {...props} />}
       >
-        <Tab.Screen name="Chats" component={ChatScreen} />
-        <Tab.Screen name="Friends" component={FriendsScreen} />
+        {/* Tab 1: Broadcast - Group chat with all peers (no FAB) */}
+        <Tab.Screen name="Broadcast" component={BroadcastScreen} />
+
+        {/* Tab 2: Chat - List of conversations with FAB to open Friends */}
+        <Tab.Screen name="Chat" component={ChatListScreen} />
+
+        {/* Tab 3: Settings */}
         <Tab.Screen name="Settings" component={SettingsScreen} />
       </Tab.Navigator>
     </View>
@@ -88,7 +92,7 @@ export const MainTabNavigator = () => {
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    backgroundColor: '#000', // Dark theme background
+    backgroundColor: '#000',
   },
   bottomContainer: {
     backgroundColor: '#1a1a1a',

@@ -6,13 +6,13 @@ import {
   Platform,
 } from 'react-native';
 import { StorageService } from '../../utils/storage';
-import type { 
-  Peer, 
-  Message, 
-  DiscoveryEvent, 
+import type {
+  Peer,
+  Message,
+  DiscoveryEvent,
   ConnectionInfo,
   MessageReceivedEvent,
-  FriendRequest 
+  FriendRequest
 } from '../../types';
 
 const { MeshNetwork } = NativeModules;
@@ -21,14 +21,14 @@ const MeshNetworkEvents = new NativeEventEmitter(MeshNetwork);
 // Utility function to parse device identifier "username|persistentId"
 const parseDeviceIdentifier = (deviceName: string): { displayName: string; persistentId?: string } => {
   const parts = deviceName.split('|');
-  
+
   if (parts.length === 2) {
     return {
       displayName: parts[0],
       persistentId: parts[1],
     };
   }
-  
+
   // Fallback for devices without persistent ID (old format or other apps)
   return {
     displayName: deviceName,
@@ -143,34 +143,34 @@ export const useChatScreen = () => {
       // Load username and persistent ID from storage
       const savedUsername = await StorageService.getUsername();
       const savedPersistentId = await StorageService.getPersistentId(); // Gets or creates persistent ID
-      
+
       if (savedUsername) {
         setUsername(savedUsername);
       }
       console.log("usechat: username: ", savedUsername)
       console.log("usechat: persistentId: ", savedPersistentId)
       setPersistentId(savedPersistentId);
-      
+
       // Load friends list
       await refreshFriendsList();
-      
+
       // Load friend requests
       const requests = await StorageService.getFriendRequests();
       setFriendRequests(requests);
       console.log('Loaded friend requests:', requests.length);
-      
+
       // Create device identifier: "username|persistentId"
       // Format: "Alice|abc-123-def" so other devices can parse it
-      const deviceIdentifier = savedUsername 
-        ? `${savedUsername}|${savedPersistentId}` 
+      const deviceIdentifier = savedUsername
+        ? `${savedUsername}|${savedPersistentId}`
         : `User|${savedPersistentId}`;
-      
+
       console.log('Device Identifier:', deviceIdentifier);
       console.log('Persistent ID:', savedPersistentId);
-      
+
       // Update device name with username AND persistent ID
       MeshNetwork.setDeviceName(deviceIdentifier);
-      
+
       MeshNetwork.init();
       setStatus('Initialized');
 
@@ -194,13 +194,13 @@ export const useChatScreen = () => {
     const attemptConnection = (peer: Peer) => {
       const attempts = connectionAttempts.current.get(peer.deviceAddress) || 0;
       const maxAttempts = 3;
-      
+
       if (!connectedPeers.includes(peer.deviceAddress)) {
         if (attempts >= maxAttempts) {
           console.log(`Max connection attempts (${maxAttempts}) reached for: ${peer.deviceName}`);
           return;
         }
-        
+
         console.log(`Auto-connecting to: ${peer.deviceName} (attempt ${attempts + 1}/${maxAttempts})`);
         console.log(`Connection details:`, {
           deviceAddress: peer.deviceAddress,
@@ -208,25 +208,25 @@ export const useChatScreen = () => {
           status: peer.status,
           attempts: attempts + 1
         });
-        
+
         MeshNetwork.connectToPeer(peer.deviceAddress);
         connectionAttempts.current.set(peer.deviceAddress, attempts + 1);
-        
+
         // Set retry timer (retry after 3 seconds if connection fails)
         const existingTimer = connectionRetryTimers.current.get(peer.deviceAddress);
         if (existingTimer) {
           clearTimeout(existingTimer);
         }
-        
+
         const retryTimer = setTimeout(() => {
           // Check if still not connected and peer still available
-          if (!connectedPeers.includes(peer.deviceAddress) && 
-              peers.some(p => p.deviceAddress === peer.deviceAddress)) {
+          if (!connectedPeers.includes(peer.deviceAddress) &&
+            peers.some(p => p.deviceAddress === peer.deviceAddress)) {
             console.log(`Retrying connection to: ${peer.deviceName}`);
             attemptConnection(peer);
           }
         }, 3000); // Retry after 3 seconds (reduced from 5)
-        
+
         connectionRetryTimers.current.set(peer.deviceAddress, retryTimer);
       } else {
         console.log(`Skipping connection to ${peer.deviceName} - already connected`);
@@ -237,21 +237,21 @@ export const useChatScreen = () => {
       'onPeersFound',
       (event: Peer[]) => {
         console.log('Peers found (raw):', event);
-        
+
         // Parse device identifiers and add persistent IDs
         const parsedPeers = event.map((peer: Peer) => {
           const { displayName, persistentId } = parseDeviceIdentifier(peer.deviceName);
-          
+
           return {
             ...peer,
             displayName,
             persistentId,
           };
         });
-        
+
         console.log('Peers found (parsed):', parsedPeers);
         setPeers(parsedPeers);
-        
+
         // Always auto-connect to available peers
         if (parsedPeers.length > 0) {
           parsedPeers.forEach((peer: Peer) => {
@@ -265,7 +265,7 @@ export const useChatScreen = () => {
               isAlreadyConnected: connectedPeers.includes(peer.deviceAddress),
               willAutoConnect: (peer.status === 3 || peer.status !== 0) && !connectedPeers.includes(peer.deviceAddress)
             });
-            
+
             // Auto-connect if:
             // 1. Status is 3 (Available) OR status is not 0 (not already connected)
             // 2. Not already in our connected peers list
@@ -304,19 +304,19 @@ export const useChatScreen = () => {
         if (eventStatus.includes('Failed')) {
           const errorMsg = message || `Error code ${reasonCode || 'Unknown'}`;
           setStatus(`Discovery Failed: ${errorMsg} - Retrying...`);
-          
+
           // Auto-retry on discovery failure
           console.log('Discovery failed - Auto-retrying in 3 seconds...');
           setTimeout(() => {
             console.log('Restarting discovery...');
             MeshNetwork.discoverPeers();
           }, 3000); // Retry after 3 seconds
-          
+
         } else if (eventStatus.toLowerCase().includes('already')) {
           // Handle "Already discovering" error
           setStatus('Already discovering - Resetting...');
           console.log('Already discovering error - Resetting and restarting...');
-          
+
           // Stop and restart
           setTimeout(() => {
             MeshNetwork.stopDiscovery();
@@ -325,7 +325,7 @@ export const useChatScreen = () => {
               MeshNetwork.discoverPeers();
             }, 1000);
           }, 1000);
-          
+
         } else {
           setStatus(eventStatus);
         }
@@ -409,21 +409,21 @@ export const useChatScreen = () => {
       'onMessageReceived',
       async (data: MessageReceivedEvent) => {
         console.log('Message received:', data);
-        
+
         // Check if it's a friend request
         if (data.message.startsWith('FRIEND_REQUEST:')) {
           const parts = data.message.split(':');
           if (parts.length === 3) {
             const requestPersistentId = parts[1];
             const requestDisplayName = parts[2];
-            
+
             // Check if already friends
             const isAlreadyFriend = await StorageService.isFriend(requestPersistentId);
             if (isAlreadyFriend) {
               console.log('Friend request from existing friend, ignoring');
               return;
             }
-            
+
             // Add to friend requests as incoming
             const friendRequest = {
               persistentId: requestPersistentId,
@@ -432,38 +432,38 @@ export const useChatScreen = () => {
               timestamp: data.timestamp,
               type: 'incoming' as const,
             };
-            
+
             await StorageService.addFriendRequest(friendRequest);
             setFriendRequests(prev => {
               const filtered = prev.filter(r => r.persistentId !== requestPersistentId);
               return [...filtered, friendRequest];
             });
-            
+
             console.log('Friend request received from:', requestDisplayName);
           }
           return;
         }
-        
+
         // Check if it's a friend request acceptance
         if (data.message.startsWith('FRIEND_ACCEPT:')) {
           console.log('=== FRIEND_ACCEPT MESSAGE RECEIVED ===');
           console.log('Raw message:', data.message);
           console.log('From address:', data.fromAddress);
-          
+
           const parts = data.message.split(':');
           if (parts.length === 3) {
             const acceptPersistentId = parts[1];
             const acceptDisplayName = parts[2];
-            
+
             console.log('Parsed - ID:', acceptPersistentId, 'Name:', acceptDisplayName);
-            
+
             // Check if already friends
             const isAlreadyFriend = await StorageService.isFriend(acceptPersistentId);
             if (isAlreadyFriend) {
               console.log('Already friends with', acceptDisplayName, '- skipping');
               return;
             }
-            
+
             // Add as friend
             await StorageService.addFriend({
               persistentId: acceptPersistentId,
@@ -471,14 +471,14 @@ export const useChatScreen = () => {
               deviceAddress: data.fromAddress,
             });
             console.log('✅ Added to storage:', acceptDisplayName);
-            
+
             // Update local friends list
             setFriendsList(prev => {
               const newSet = new Set([...prev, acceptPersistentId]);
               console.log('✅ Updated friendsList state, size:', newSet.size);
               return newSet;
             });
-            
+
             // Remove from outgoing friend requests
             await StorageService.removeFriendRequest(acceptPersistentId);
             setFriendRequests(prev => {
@@ -486,43 +486,43 @@ export const useChatScreen = () => {
               console.log('✅ Removed from friend requests, remaining:', filtered.length);
               return filtered;
             });
-            
+
             console.log('✅ Friend request accepted by:', acceptDisplayName);
           } else {
             console.log('❌ Invalid FRIEND_ACCEPT format:', data.message);
           }
           return;
         }
-        
+
         // Check if it's a direct message (personal chat)
         if (data.message.startsWith('DIRECT_MSG:')) {
           console.log('Chats - Direct message detected');
-          
+
           // Parse and save direct message to storage
           const parts = data.message.split(':', 3);
-          
+
           if (parts.length === 3) {
             const targetPersistentId = parts[1];
             const messageContent = parts[2];
-            
+
             console.log('Chats - Direct message details:', {
               targetPersistentId,
               myPersistentId: persistentId,
               fromAddress: data.fromAddress,
               messagePreview: messageContent.substring(0, 20)
             });
-            
+
             // Get current persistent ID from storage (in case state is stale)
             const currentPersistentId = await StorageService.getPersistentId();
-            
+
             // Check if this message is for me
             if (targetPersistentId === currentPersistentId) {
               console.log('Chats - Received direct message for me, saving to storage');
-              
+
               // Parse sender info from device name format "Name|PersistentID"
               let senderPersistentId: string | undefined;
               let senderName = data.senderName || 'Unknown';
-              
+
               // Try to find sender in current peers list
               const sender = peers.find(p => p.deviceAddress === data.fromAddress);
               if (sender?.persistentId) {
@@ -540,7 +540,7 @@ export const useChatScreen = () => {
                   }
                 }
               }
-              
+
               // Save message to chat history
               if (senderPersistentId) {
                 const newMessage = {
@@ -551,7 +551,7 @@ export const useChatScreen = () => {
                   timestamp: data.timestamp,
                   isSent: false,
                 };
-                
+
                 // Save to storage for this friend
                 StorageService.getChatHistory(senderPersistentId).then(history => {
                   // Check for duplicate message
@@ -560,29 +560,37 @@ export const useChatScreen = () => {
                     console.log(`Chats - Duplicate message detected from ${senderName}, skipping save`);
                     return;
                   }
-                  
+
                   const updatedHistory = [...history, newMessage];
                   StorageService.saveChatHistory(senderPersistentId, updatedHistory);
                   console.log(`✅ Saved direct message from ${senderName} (${senderPersistentId}) to storage`);
                 });
               } else {
                 console.log('⚠️ Could not determine sender persistent ID, message not saved');
-                console.log('⚠️ Debug info:', { 
-                  fromAddress: data.fromAddress, 
+                console.log('⚠️ Debug info:', {
+                  fromAddress: data.fromAddress,
                   senderName: data.senderName,
-                  peersCount: peers.length 
+                  peersCount: peers.length
                 });
               }
             } else {
               console.log('Chats - Direct message not for me, ignoring');
             }
           }
-          
+
           // Don't show direct messages in the broadcast chat
           return;
         }
-        
-        // Regular broadcast message
+
+        // Regular broadcast message - but filter out system messages
+        // Don't show FRIEND_REMOVE, FRIEND_REQUEST, FRIEND_ACCEPT in broadcast
+        if (data.message.startsWith('FRIEND_REMOVE:') ||
+          data.message.startsWith('FRIEND_REQUEST:') ||
+          data.message.startsWith('FRIEND_ACCEPT:')) {
+          console.log('System message filtered from broadcast:', data.message.substring(0, 20));
+          return;
+        }
+
         const newMessage: Message = {
           id: `${data.timestamp}-${data.fromAddress}`,
           text: data.message,
@@ -607,12 +615,12 @@ export const useChatScreen = () => {
         // Handle specific error codes
         const reasonCode = error?.reasonCode || error;
         const deviceAddress = error?.deviceAddress;
-        
+
         // Log all errors for debugging, but some are just informational
         console.log('Connection event:', { reasonCode, deviceAddress });
-        
+
         let errorMessage = 'Connection Error';
-        
+
         switch (reasonCode) {
           case 1:
             // Error code 1 is informational - "Already advertising/discovering"
@@ -652,9 +660,9 @@ export const useChatScreen = () => {
             console.log(`Unknown connection error: ${reasonCode} for ${deviceAddress}`);
             errorMessage = `Error code ${reasonCode}`;
         }
-        
+
         setStatus(errorMessage);
-        
+
         // Note: Retry logic will automatically handle this in the attemptConnection function
       },
     );
@@ -668,7 +676,7 @@ export const useChatScreen = () => {
       onMessageReceivedListener.remove();
       onMessageSentListener.remove();
       onConnectionErrorListener.remove();
-      
+
       // Clear all retry timers
       connectionRetryTimers.current.forEach((timer) => {
         clearTimeout(timer);
@@ -719,7 +727,7 @@ export const useChatScreen = () => {
 
   const handleSendMessage = () => {
     if (!messageText.trim()) return;
-    
+
     const newMessage: Message = {
       id: `${Date.now()}-sent`,
       text: messageText,
@@ -732,7 +740,7 @@ export const useChatScreen = () => {
     setMessages(prev => [...prev, newMessage]);
     MeshNetwork.sendMessage(messageText, username, null); // Pass username, null = broadcast to all
     setMessageText('');
-    
+
     // Auto scroll to bottom
     setTimeout(() => {
       messagesEndRef.current?.scrollToEnd({ animated: true });
@@ -759,7 +767,7 @@ export const useChatScreen = () => {
     // Send friend request to the peer
     const friendRequestMessage = `FRIEND_REQUEST:${persistentId}:${username}`;
     MeshNetwork.sendMessage(friendRequestMessage, username, peer.deviceAddress);
-    
+
     // Save as outgoing request so we can track it
     await StorageService.addFriendRequest({
       persistentId: peer.persistentId,
@@ -768,7 +776,7 @@ export const useChatScreen = () => {
       timestamp: Date.now(),
       type: 'outgoing',
     });
-    
+
     setFriendRequests(prev => {
       const filtered = prev.filter(r => r.persistentId !== peer.persistentId);
       return [...filtered, {
@@ -779,10 +787,10 @@ export const useChatScreen = () => {
         type: 'outgoing' as const,
       }];
     });
-    
+
     // Auto-connect to peer
     handleConnectToPeer(peer.deviceAddress);
-    
+
     console.log('Friend request sent to:', peer.displayName);
   };
 
@@ -796,24 +804,24 @@ export const useChatScreen = () => {
 
     // Update local friends list
     setFriendsList(prev => new Set([...prev, request.persistentId]));
-    
+
     // Remove from friend requests
     await StorageService.removeFriendRequest(request.persistentId);
     setFriendRequests(prev => prev.filter(r => r.persistentId !== request.persistentId));
-    
+
     // Send acceptance message back - BROADCAST to ensure delivery
     const acceptMessage = `FRIEND_ACCEPT:${persistentId}:${username}`;
-    
+
     // Try to send directly first
     MeshNetwork.sendMessage(acceptMessage, username, request.deviceAddress);
     console.log('Sent FRIEND_ACCEPT to:', request.deviceAddress);
-    
+
     // Also broadcast to ensure the message reaches the requester
     setTimeout(() => {
       MeshNetwork.sendMessage(acceptMessage, username, null);
       console.log('Broadcasted FRIEND_ACCEPT to all peers');
     }, 100);
-    
+
     console.log('Friend request accepted:', request.displayName);
   };
 
@@ -821,7 +829,7 @@ export const useChatScreen = () => {
     // Remove from friend requests
     await StorageService.removeFriendRequest(request.persistentId);
     setFriendRequests(prev => prev.filter(r => r.persistentId !== request.persistentId));
-    
+
     console.log('Friend request rejected:', request.displayName);
   };
 
@@ -862,11 +870,11 @@ export const useChatScreen = () => {
     friendsList,
     friendRequests,
     isRefreshingFriends,
-    
+
     // State setters
     setMessageText,
     setShowPeerModal,
-    
+
     // Handlers
     handleDiscoverPeers,
     handleStopDiscovery,

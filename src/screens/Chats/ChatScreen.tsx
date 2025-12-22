@@ -59,6 +59,18 @@ const ChatScreen = ({ navigation }: any) => {
 
     const pendingRequestsCount = friendRequests.filter((r: any) => r.type === 'incoming').length;
 
+    // Simple broadcast status - only show Discovering, CONNECTED, or DISCONNECTED
+    const getBroadcastStatus = () => {
+        if (connectedPeers.length > 0) {
+            return 'CONNECTED';
+        }
+        if (status.toLowerCase().includes('discover') || status.toLowerCase().includes('initializ')) {
+            return 'Discovering...';
+        }
+        return 'DISCONNECTED';
+    };
+    const broadcastStatus = getBroadcastStatus();
+
     // 4. Friend Request Animation Logic
     useEffect(() => {
         if (showRequests) {
@@ -126,13 +138,7 @@ const ChatScreen = ({ navigation }: any) => {
 
             {/* --- HEADER --- */}
             <View style={styles.statusBar}>
-                <View>
-                    <Text style={styles.statusLabel}>User: <Text style={styles.statusValue}>{username}</Text></Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={styles.statusLabel}>Status: </Text>
-                        <Text style={styles.statusValue}>{status}</Text>
-                    </View>
-                </View>
+                <Text style={styles.statusLabel}>Broadcast Status: <Text style={styles.statusValue}>{broadcastStatus}</Text></Text>
 
                 <View style={styles.statusRight}>
                     {/* Peers Button */}
@@ -153,12 +159,16 @@ const ChatScreen = ({ navigation }: any) => {
                         </Text>
                     </TouchableOpacity>
 
-                    {/* Notification/Requests Button */}
+                    {/* Friend Requests Button with Human Icon */}
                     {pendingRequestsCount > 0 && (
                         <TouchableOpacity
                             onPress={() => setShowRequests(true)}
                             activeOpacity={0.7}
+                            style={styles.friendRequestButton}
                         >
+                            <View style={styles.friendRequestIconContainer}>
+                                <Ionicons name="person-add" size={18} color="#000" />
+                            </View>
                             <View style={styles.notificationBadge}>
                                 <Text style={styles.notificationText}>
                                     {pendingRequestsCount > 9 ? '9+' : pendingRequestsCount}
@@ -324,7 +334,7 @@ const ChatScreen = ({ navigation }: any) => {
     );
 };
 
-// --- STYLES (Matched to BroadcastScreen) ---
+// --- STYLES (Matched to v1.0 BroadcastScreen) ---
 const styles = StyleSheet.create({
     container: {
         flex: 1,
@@ -333,21 +343,19 @@ const styles = StyleSheet.create({
     flexContainer: {
         flex: 1,
     },
-    // Header
+    // Header - v1.0 style
     statusBar: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
         backgroundColor: '#F5F5F5',
-        paddingVertical: 12,
-        paddingHorizontal: 16,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
         borderBottomWidth: 1,
-        borderBottomColor: '#ccc',
-        elevation: 2,
+        borderBottomColor: '#000',
     },
     statusLabel: {
         fontSize: 12,
-        color: '#666',
+        color: '#000',
         fontWeight: '600',
     },
     statusValue: {
@@ -357,26 +365,26 @@ const styles = StyleSheet.create({
         marginLeft: 4,
     },
     statusRight: {
+        marginLeft: 'auto',
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
+        gap: 8,
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 12,
     },
     statusDotWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        backgroundColor: '#fff',
-        paddingVertical: 4,
-        paddingHorizontal: 8,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#ddd',
+        gap: 4,
     },
     statusDot: {
-        width: 10,
-        height: 10,
-        borderRadius: 5,
+        width: 12,
+        height: 12,
+        borderRadius: 6,
         backgroundColor: '#EF4444',
+        borderWidth: 1,
+        borderColor: '#000',
     },
     statusDotConnected: {
         backgroundColor: '#22C55E',
@@ -389,19 +397,36 @@ const styles = StyleSheet.create({
     statusCountConnected: {
         color: '#22C55E',
     },
-    notificationBadge: {
-        minWidth: 20,
-        height: 20,
-        borderRadius: 10,
+    friendRequestButton: {
+        position: 'relative',
+        padding: 2,
+    },
+    friendRequestIconContainer: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
         backgroundColor: '#F59E0B',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingHorizontal: 5,
+        borderWidth: 1.5,
+        borderColor: '#000',
+    },
+    notificationBadge: {
+        position: 'absolute',
+        top: -2,
+        right: -4,
+        minWidth: 16,
+        height: 16,
+        borderRadius: 8,
+        backgroundColor: '#EF4444',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 3,
         borderWidth: 1,
         borderColor: '#000',
     },
     notificationText: {
-        fontSize: 10,
+        fontSize: 9,
         fontWeight: '800',
         color: '#000',
     },
@@ -465,22 +490,20 @@ const styles = StyleSheet.create({
     },
     receivedBubble: {
         transform: [{ skewX: '-10deg' }],
-        backgroundColor: '#fff',
     },
     sentBubble: {
         transform: [{ skewX: '10deg' }],
-        backgroundColor: '#F59E0B', // Optional: Make sent bubbles amber like button
     },
     messageText: {
         color: '#000',
         fontSize: 14,
-        transform: [{ skewX: '0deg' }], // Counteract skew
+        transform: [{ skewX: '0deg' }],
     },
     messageTime: {
         fontSize: 10,
         color: '#888',
         marginTop: 4,
-        alignSelf: 'flex-end',
+        marginLeft: 4,
     },
 
     // Input
@@ -489,9 +512,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 12,
         paddingBottom: Platform.OS === 'ios' ? 24 : 12,
-        backgroundColor: '#F5F5F5',
-        borderTopWidth: 1,
-        borderTopColor: '#ccc',
     },
     input: {
         flex: 1,
@@ -517,10 +537,9 @@ const styles = StyleSheet.create({
     },
     sendButtonDisabled: {
         opacity: 0.5,
-        backgroundColor: '#ccc',
     },
 
-    // Requests Overlay (Dark Mode Style to match BroadcastScreen)
+    // Friend Requests Bottom Sheet - v1.0 style
     requestsOverlay: {
         position: 'absolute',
         top: 0,
@@ -532,20 +551,15 @@ const styles = StyleSheet.create({
     },
     requestsCard: {
         width: '100%',
-        maxHeight: '50%',
-        backgroundColor: '#292929', // Dark background for the card
+        maxHeight: '45%',
+        backgroundColor: '#292929',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         paddingHorizontal: 16,
         paddingTop: 12,
-        paddingBottom: 24,
+        paddingBottom: 16,
         borderTopWidth: 1,
         borderColor: '#000',
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 3.84,
-        elevation: 5,
     },
     requestsDragHandleContainer: {
         alignItems: 'center',
@@ -556,33 +570,31 @@ const styles = StyleSheet.create({
         height: 4,
         backgroundColor: '#FFFFFF',
         borderRadius: 2,
-        opacity: 0.5,
+        opacity: 0.9,
     },
     requestsHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingBottom: 16,
-        marginBottom: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: '#333',
+        paddingBottom: 8,
     },
     requestsHeaderTextContainer: {
         flex: 1,
     },
     requestsCloseIcon: {
         padding: 4,
+        marginLeft: 12,
     },
     requestsTitle: {
         fontSize: 20,
         fontWeight: '700',
         color: '#E5E1DE',
+        marginBottom: 4,
     },
     requestsEmpty: {
-        fontSize: 14,
+        fontSize: 13,
         color: '#AAA',
-        textAlign: 'center',
-        marginTop: 20,
+        marginBottom: 12,
     },
     requestItem: {
         flexDirection: 'row',
@@ -595,7 +607,7 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     requestInfo: {
-        flex: 1,
+        flexShrink: 1,
         paddingRight: 8,
     },
     requestName: {
@@ -606,7 +618,6 @@ const styles = StyleSheet.create({
     requestId: {
         fontSize: 11,
         color: '#666',
-        marginTop: 2,
     },
     requestActions: {
         flexDirection: 'row',
@@ -614,9 +625,9 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     requestAccept: {
-        paddingHorizontal: 16,
-        paddingVertical: 6,
-        borderRadius: 20,
+        paddingHorizontal: 12,
+        paddingVertical: 4,
+        borderRadius: 999,
         backgroundColor: '#F59E0B',
         borderWidth: 1,
         borderColor: '#000',
@@ -627,14 +638,31 @@ const styles = StyleSheet.create({
         color: '#000',
     },
     requestReject: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
         backgroundColor: '#EF4444',
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
         borderColor: '#000',
+    },
+    // FAB - v1.0 style
+    fab: {
+        position: 'absolute',
+        bottom: 20,
+        right: 14,
+        width: 58,
+        height: 58,
+        borderRadius: 29,
+        backgroundColor: '#F59E0B',
+        alignItems: 'center',
+        justifyContent: 'center',
+        elevation: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4.65,
     },
 });
 
