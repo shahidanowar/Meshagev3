@@ -7,22 +7,35 @@ import {
   StyleSheet,
   StatusBar,
   Alert,
+  TextInput,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { NativeModules, NativeEventEmitter } from 'react-native';
-import { FriendsStackParamList } from '../../navigation/MainTabNavigator';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { StorageService, Friend } from '../../utils/storage';
 
 const { MeshNetwork } = NativeModules;
 const MeshNetworkEvents = new NativeEventEmitter(MeshNetwork);
 
-type NavigationProp = NativeStackNavigationProp<FriendsStackParamList, 'FriendsList'>;
+type RootStackParamList = {
+  PersonalChat: {
+    friendId: string;
+    friendName: string;
+    friendAddress?: string;
+  };
+};
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'PersonalChat'>;
 
 const FriendsScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   const loadFriends = async () => {
     const loadedFriends = await StorageService.getFriends();
@@ -86,147 +99,193 @@ const FriendsScreen = () => {
     });
   };
 
-  const renderFriend = ({ item }: { item: Friend }) => {
-    const lastSeenText = item.lastSeen
-      ? new Date(item.lastSeen).toLocaleDateString()
-      : 'Never';
+  // Filter friends by search query
+  const filteredFriends = friends.filter(friend =>
+    friend.displayName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
-    return (
+  const renderFriendItem = ({ item }: { item: Friend }) => (
+    <View style={styles.friendItem}>
       <TouchableOpacity
-        style={styles.friendItem}
+        style={styles.friendInfo}
         onPress={() => handleOpenChat(item)}
-        activeOpacity={0.7}>
-        <View style={styles.friendInfo}>
-          <Text style={styles.friendName}>⭐ {item.displayName}</Text>
-          <Text style={styles.lastSeen}>Added: {lastSeenText}</Text>
+        activeOpacity={0.7}
+      >
+        <View style={styles.avatar}>
+          <Ionicons name="person" size={20} color="#666" />
         </View>
-        <View style={styles.friendActions}>
-          {/* <TouchableOpacity
-            style={styles.chatButton}
-            onPress={() => handleOpenChat(item)}>
-            <Text style={styles.chatButtonText}>💬</Text>
-          </TouchableOpacity> */}
-          <TouchableOpacity
-            style={styles.removeButton}
-            onPress={(e) => {
-              e.stopPropagation();
-              handleRemoveFriend(item);
-            }}>
-            <Text style={styles.removeButtonText}>Remove</Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.friendName}>{item.displayName}</Text>
       </TouchableOpacity>
-    );
-  };
+      <View style={styles.friendActions}>
+        <TouchableOpacity
+          style={styles.messageIcon}
+          onPress={() => handleOpenChat(item)}
+        >
+          <Ionicons name="chatbubble" size={20} color="#666" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.removeButton}
+          onPress={() => handleRemoveFriend(item)}
+        >
+          <Ionicons name="trash" size={18} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Friends</Text>
-        <Text style={styles.subtitle}>
-          {friends.length} {friends.length === 1 ? 'Friend' : 'Friends'}
-        </Text>
-      </View>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#1a1a1a" />
 
-      {/* Friends List */}
-      <FlatList
-        data={friends}
-        renderItem={renderFriend}
-        keyExtractor={item => item.persistentId}
-        contentContainerStyle={styles.listContainer}
-        refreshing={refreshing}
-        onRefresh={handleRefresh}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>👥</Text>
-            <Text style={styles.emptyText}>No friends yet</Text>
-            <Text style={styles.emptySubtext}>
-              Go to the Chat tab and tap "Add Friend" on nearby devices to add them to your friends list.
-            </Text>
-          </View>
-        }
-      />
-    </View>
+        <View style={styles.headerSection}>
+          <Text style={styles.title}>Your Friends</Text>
+          <Text style={styles.subtitle}>
+            Total: <Text style={styles.subtitleCount}>{friends.length}</Text>
+          </Text>
+        </View>
+
+        <View
+          style={[
+            styles.searchContainer,
+            isSearchFocused && styles.searchContainerFocused,
+          ]}
+        >
+          <Ionicons
+            name="search"
+            size={20}
+            color={isSearchFocused ? '#F59E0B' : '#666'}
+            style={styles.searchIcon}
+          />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by names"
+            placeholderTextColor="#999"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => setIsSearchFocused(false)}
+          />
+        </View>
+
+        <FlatList
+          data={filteredFriends}
+          renderItem={renderFriendItem}
+          keyExtractor={item => item.persistentId}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>👥</Text>
+              <Text style={styles.emptyText}>No friends yet</Text>
+              <Text style={styles.emptySubtext}>
+                Go to the Chats tab and tap "Add Friend" on nearby devices to add them to your friends list.
+              </Text>
+            </View>
+          }
+        />
+      </View>
+    </TouchableWithoutFeedback>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1c1c1e',
+    backgroundColor: '#E5E5E5',
+    paddingHorizontal: 16,
   },
-  header: {
-    padding: 20,
-    backgroundColor: '#2c2c2e',
-    borderBottomWidth: 1,
-    borderBottomColor: '#3a3a3c',
+  headerSection: {
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#000',
     marginBottom: 4,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#8e8e93',
+    fontSize: 13,
+    color: '#666',
   },
-  listContainer: {
-    padding: 20,
+  subtitleCount: {
+    fontWeight: '600',
+    color: '#000',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  searchContainerFocused: {
+    backgroundColor: '#FFF',
+    borderColor: '#F59E0B',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: '#000',
+  },
+  listContent: {
+    paddingBottom: 100,
   },
   friendItem: {
     flexDirection: 'row',
-    backgroundColor: '#2c2c2e',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
     alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginBottom: 8,
   },
   friendInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     flex: 1,
   },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E5E5E5',
+    borderWidth: 0.3,
+    borderColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   friendName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  friendId: {
-    fontSize: 12,
-    color: '#8e8e93',
-    marginBottom: 4,
-  },
-  lastSeen: {
-    fontSize: 12,
-    color: '#8e8e93',
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
   },
   friendActions: {
     flexDirection: 'row',
-    gap: 8,
     alignItems: 'center',
+    gap: 8,
   },
-  chatButton: {
-    backgroundColor: '#007aff',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  chatButtonText: {
-    fontSize: 20,
+  messageIcon: {
+    padding: 8,
   },
   removeButton: {
     backgroundColor: '#ff3b30',
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     borderRadius: 8,
-  },
-  removeButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
   },
   emptyContainer: {
     marginTop: 60,
@@ -240,12 +299,12 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#fff',
+    color: '#000',
     marginBottom: 8,
   },
   emptySubtext: {
     textAlign: 'center',
-    color: '#8e8e93',
+    color: '#666',
     fontSize: 16,
     lineHeight: 22,
   },
