@@ -17,6 +17,7 @@ import Svg, { Path } from 'react-native-svg';
 import QRCode from 'react-native-qrcode-svg';
 import { Camera, CameraType } from 'react-native-camera-kit'; // Ensure CameraType is imported if needed by your version
 import { StorageService } from '../../utils/storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { MeshNetwork } = NativeModules;
 
@@ -207,6 +208,34 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleClearData = () => {
+    Alert.alert(
+      'Clear App Data?',
+      'This will reset your profile and onboarding status. You will need to set up your name again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Data',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await StorageService.clearUsername();
+              await AsyncStorage.removeItem('@meshage_onboarding_complete'); // Manually remove for now or add helper
+              // Optionally clear other things if needed
+
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Onboarding' }],
+              });
+            } catch (error) {
+              console.error('Error clearing data:', error);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const qrValue = persistentId
     ? `${userName || 'User'}|${persistentId}`
     : '';
@@ -235,7 +264,7 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.qrContainer}>
+            <View style={[styles.qrContainer, { alignSelf: 'center', marginVertical: 20 }]}>
               {qrValue ? (
                 <QRCode
                   value={qrValue}
@@ -289,11 +318,11 @@ export default function SettingsScreen() {
         </View>
 
         <TouchableOpacity
-          style={styles.moreInfoButton}
-          onPress={handleMoreInfo}
+          style={[styles.moreInfoButton, { backgroundColor: '#ffe4e6' }]}
+          onPress={handleClearData}
           activeOpacity={0.7}
         >
-          <Text style={styles.moreInfoButtonText}>Device Info</Text>
+          <Text style={[styles.moreInfoButtonText, { color: '#e11d48' }]}>CLEAR USER DATA</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -409,6 +438,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#ffffff',
     alignSelf: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   qrPlaceholder: {
     flex: 1,
