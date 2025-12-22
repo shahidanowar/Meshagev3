@@ -9,13 +9,16 @@ import {
   Animated,
   Platform,
   PermissionsAndroid,
+  NativeModules,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Path } from 'react-native-svg';
 import QRCode from 'react-native-qrcode-svg';
 import { Camera, CameraType } from 'react-native-camera-kit'; // Ensure CameraType is imported if needed by your version
-import { StorageService } from '../../utils/storage'; 
+import { StorageService } from '../../utils/storage';
+
+const { MeshNetwork } = NativeModules;
 
 export default function SettingsScreen() {
   const [isConnected, setIsConnected] = useState(true);
@@ -29,11 +32,13 @@ export default function SettingsScreen() {
     const loadUserInfo = async () => {
       const savedUsername = await StorageService.getUsername();
       const savedPersistentId = await StorageService.getPersistentId();
+      const networkEnabled = await StorageService.getNetworkEnabled();
 
       if (savedUsername) {
         setUserName(savedUsername);
       }
       setPersistentId(savedPersistentId || '');
+      setIsConnected(networkEnabled);
     };
 
     loadUserInfo();
@@ -68,7 +73,7 @@ export default function SettingsScreen() {
   const handleScanSuccess = async (e: { data?: string }) => {
     // Prevent multiple triggers
     if (!scanning) return;
-    
+
     setShowScanner(false);
     setScanning(false);
 
@@ -109,24 +114,28 @@ export default function SettingsScreen() {
         return;
       }
 
-      // Add friend logic
-      await StorageService.addFriendRequest({
-        persistentId: scannedPersistentId,
-        displayName: scannedName,
-        deviceAddress: '',
-        timestamp: Date.now(),
-        type: 'outgoing',
-      });
-
+      // Add friend locally
       await StorageService.addFriend({
         persistentId: scannedPersistentId,
         displayName: scannedName,
         deviceAddress: '',
       });
 
+      // Get fresh values from storage to ensure they're not stale
+      const myPersistentId = await StorageService.getPersistentId();
+      const myUsername = await StorageService.getUsername() || 'User';
+
+      // Broadcast a QR_FRIEND_ADD message so the other device also adds us as friend
+      // Format: QR_FRIEND_ADD:targetPersistentId:myPersistentId:myUsername
+      const qrFriendMessage = `QR_FRIEND_ADD:${scannedPersistentId}:${myPersistentId}:${myUsername}`;
+
+      // Broadcast to all connected peers
+      MeshNetwork.sendMessage(qrFriendMessage, myUsername, null);
+      console.log('QR Friend Add broadcasted:', qrFriendMessage);
+
       Alert.alert(
-        'Friend linked',
-        `${scannedName} will be added as your friend once you are connected on Broadcast.`,
+        'Friend Added!',
+        `${scannedName} has been added to your friends list.`,
       );
     } catch (error) {
       console.error('Error handling QR scan result:', error);
@@ -136,7 +145,66 @@ export default function SettingsScreen() {
 
   const handleMoreInfo = () => {
     // This is why you need the file below!
-    navigation.navigate('MoreInfoPage'); 
+    navigation.navigate('MoreInfoPage');
+  };
+
+  const handleNetworkToggle = () => {
+    if (isConnected) {
+      // User wants to disconnect - show warning
+      Alert.alert(
+        '⚠️ Disconnect from Network?',
+        'Are you sure you want to disconnect?\n\n' +
+        '• You will NOT receive any messages\n' +
+        '• Your friends won\'t be able to reach you\n' +
+        '• You are important for the mesh network - disconnecting may affect message delivery for others',
+        [
+          { text: 'Stay Connected', style: 'cancel' },
+          {
+            text: 'Disconnect',
+            style: 'destructive',
+            onPress: async () => {
+              // 1. Save preference to storage FIRST to prevent auto-reconnect race condition
+              await StorageService.setNetworkEnabled(false);
+              setIsConnected(false);
+
+              // 2. Stop discovery and disconnect from all peers
+              MeshNetwork.stopDiscovery();
+              MeshNetwork.disconnect();
+
+              // 3. Also try to remove the WiFi Direct group to fully disconnect
+              try {
+                MeshNetwork.removeGroup();
+              } catch (e) {
+                console.log('removeGroup not available or failed:', e);
+              }
+
+              Alert.alert('Disconnected', 'You are now disconnected from the mesh network. You won\'t receive messages until you reconnect.');
+            },
+          },
+        ]
+      );
+    } else {
+      // User wants to reconnect
+      Alert.alert(
+        'Reconnect to Network?',
+        'This will start discovering nearby devices and allow you to send and receive messages.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Connect',
+            onPress: async () => {
+              // Save preference to storage
+              await StorageService.setNetworkEnabled(true);
+              setIsConnected(true);
+
+              // Start discovery and reconnect
+              MeshNetwork.discoverPeers();
+              Alert.alert('Connecting...', 'Searching for nearby devices.');
+            },
+          },
+        ]
+      );
+    }
   };
 
   const qrValue = persistentId
@@ -191,7 +259,7 @@ export default function SettingsScreen() {
                 styles.toggleButton,
                 isConnected && styles.toggleButtonActive
               ]}
-              onPress={() => setIsConnected(!isConnected)}
+              onPress={handleNetworkToggle}
               activeOpacity={0.8}
             >
               <Animated.View
@@ -225,7 +293,7 @@ export default function SettingsScreen() {
           onPress={handleMoreInfo}
           activeOpacity={0.7}
         >
-          <Text style={styles.moreInfoButtonText}>More Info</Text>
+          <Text style={styles.moreInfoButtonText}>Device Info</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -236,8 +304,8 @@ export default function SettingsScreen() {
               style={styles.scannerCamera}
               scanBarcode={true}
               onReadCode={(event: any) => {
-                 const value = event?.nativeEvent?.codeStringValue;
-                 if (value) handleScanSuccess({ data: value });
+                const value = event?.nativeEvent?.codeStringValue;
+                if (value) handleScanSuccess({ data: value });
               }}
               showFrame={false} // We draw our own custom frame below
             />

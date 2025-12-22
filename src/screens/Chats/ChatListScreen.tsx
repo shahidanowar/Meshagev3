@@ -6,6 +6,7 @@ import {
     View,
     TouchableOpacity,
     StatusBar,
+    RefreshControl,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -31,6 +32,7 @@ type ChatListNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 interface ChatItem {
     friendId: string;
     name: string;
+    friendAddress?: string;
     lastMessage?: {
         text: string;
         timestamp: number;
@@ -43,9 +45,9 @@ const ChatListScreen: React.FC = () => {
     const [friends, setFriends] = useState<Friend[]>([]);
     const [chatPreviews, setChatPreviews] = useState<ChatItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     const loadChats = useCallback(async () => {
-        setIsLoading(true);
         try {
             const loadedFriends = await StorageService.getFriends();
             setFriends(loadedFriends);
@@ -55,11 +57,14 @@ const ChatListScreen: React.FC = () => {
                 loadedFriends.map(async (friend) => {
                     const history = await StorageService.getChatHistory(friend.persistentId);
                     const lastMsg = history.length > 0 ? history[history.length - 1] : undefined;
+                    const unreadCount = await StorageService.getUnreadCount(friend.persistentId);
+
                     return {
                         friendId: friend.persistentId,
                         name: friend.displayName,
+                        friendAddress: friend.deviceAddress,
                         lastMessage: lastMsg ? { text: lastMsg.text, timestamp: lastMsg.timestamp } : undefined,
-                        unreadCount: 0, // TODO: Implement unread count tracking
+                        unreadCount,
                     };
                 })
             );
@@ -76,12 +81,20 @@ const ChatListScreen: React.FC = () => {
             console.error('Error loading chats:', error);
         } finally {
             setIsLoading(false);
+            setRefreshing(false);
         }
     }, []);
+
+    // Pull to refresh handler
+    const onRefresh = useCallback(() => {
+        setRefreshing(true);
+        loadChats();
+    }, [loadChats]);
 
     // Reload when screen is focused
     useFocusEffect(
         useCallback(() => {
+            setIsLoading(true);
             loadChats();
         }, [loadChats])
     );
@@ -94,16 +107,19 @@ const ChatListScreen: React.FC = () => {
         return () => listener.remove();
     }, [loadChats]);
 
-    const unreadCount = useMemo(() => {
-        return chatPreviews.reduce((total, chat) => total + chat.unreadCount, 0);
+    // Count number of chats with unread messages
+    const chatsWithUnread = useMemo(() => {
+        return chatPreviews.filter(chat => chat.unreadCount > 0).length;
     }, [chatPreviews]);
 
-    const handleChatItemPress = (chat: ChatItem) => {
-        const friend = friends.find(f => f.persistentId === chat.friendId);
+    const handleChatItemPress = async (chat: ChatItem) => {
+        // Mark messages as read when opening chat
+        await StorageService.setLastReadTimestamp(chat.friendId);
+
         navigation.navigate('PersonalChat', {
             friendId: chat.friendId,
             friendName: chat.name,
-            friendAddress: friend?.deviceAddress,
+            friendAddress: chat.friendAddress,
         });
     };
 
@@ -114,7 +130,20 @@ const ChatListScreen: React.FC = () => {
     const formatTime = (timestamp?: number) => {
         if (!timestamp) return '';
         const date = new Date(timestamp);
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const now = new Date();
+        const diff = now.getTime() - date.getTime();
+        const oneDay = 24 * 60 * 60 * 1000;
+
+        if (diff < oneDay && date.getDate() === now.getDate()) {
+            // Today - show time
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else if (diff < 2 * oneDay && date.getDate() === now.getDate() - 1) {
+            // Yesterday
+            return 'Yesterday';
+        } else {
+            // Show date
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        }
     };
 
     const getInitials = (name: string) => {
@@ -126,31 +155,44 @@ const ChatListScreen: React.FC = () => {
             .slice(0, 2);
     };
 
-    const renderChatItem = ({ item }: { item: ChatItem }) => (
-        <TouchableOpacity
-            style={styles.chatItem}
-            onPress={() => handleChatItemPress(item)}
-            activeOpacity={0.7}
-        >
-            <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{getInitials(item.name)}</Text>
-            </View>
-            <View style={styles.chatInfo}>
-                <View style={styles.chatHeader}>
-                    <Text style={styles.chatName} numberOfLines={1}>{item.name}</Text>
-                    <Text style={styles.chatTime}>{formatTime(item.lastMessage?.timestamp)}</Text>
+    const renderChatItem = ({ item }: { item: ChatItem }) => {
+        const hasUnread = item.unreadCount > 0;
+
+        return (
+            <TouchableOpacity
+                style={styles.chatItem}
+                onPress={() => handleChatItemPress(item)}
+                activeOpacity={0.7}
+            >
+                <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{getInitials(item.name)}</Text>
                 </View>
-                <Text style={styles.chatMessage} numberOfLines={1}>
-                    {item.lastMessage?.text || 'No messages yet'}
-                </Text>
-            </View>
-            {item.unreadCount > 0 && (
-                <View style={styles.unreadBadge}>
-                    <Text style={styles.unreadText}>{item.unreadCount}</Text>
+                <View style={styles.chatInfo}>
+                    <View style={styles.chatHeader}>
+                        <Text style={[styles.chatName, hasUnread && styles.chatNameUnread]} numberOfLines={1}>
+                            {item.name}
+                        </Text>
+                        <Text style={[styles.chatTime, hasUnread && styles.chatTimeUnread]}>
+                            {formatTime(item.lastMessage?.timestamp)}
+                        </Text>
+                    </View>
+                    <Text
+                        style={[styles.chatMessage, hasUnread && styles.chatMessageUnread]}
+                        numberOfLines={1}
+                    >
+                        {item.lastMessage?.text || 'No messages yet'}
+                    </Text>
                 </View>
-            )}
-        </TouchableOpacity>
-    );
+                {hasUnread && (
+                    <View style={styles.unreadBadge}>
+                        <Text style={styles.unreadBadgeText}>
+                            {item.unreadCount > 9 ? '9+' : item.unreadCount}
+                        </Text>
+                    </View>
+                )}
+            </TouchableOpacity>
+        );
+    };
 
     return (
         <View style={styles.container}>
@@ -160,8 +202,8 @@ const ChatListScreen: React.FC = () => {
                 <View style={styles.chatsHeader}>
                     <Text style={styles.chatsTitle}>Chats</Text>
                     <View style={styles.unreadContainer}>
-                        <Text style={styles.unreadLabel}>Unread messages</Text>
-                        <Text style={styles.unreadCount}>{unreadCount}</Text>
+                        <Text style={styles.unreadLabel}>New chats</Text>
+                        <Text style={styles.unreadCount}>{chatsWithUnread}</Text>
                     </View>
                 </View>
 
@@ -172,12 +214,20 @@ const ChatListScreen: React.FC = () => {
                     style={styles.chatList}
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={styles.chatListContent}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            colors={['#F59E0B']}
+                            tintColor="#F59E0B"
+                        />
+                    }
                     ListEmptyComponent={
                         isLoading ? (
                             <Text style={styles.emptyText}>Loading chats...</Text>
                         ) : (
                             <View style={styles.emptyContainer}>
-                                <Text style={styles.emptyIcon}>💬</Text>
+                                <Ionicons name="chatbubbles-outline" size={72} color="#999" />
                                 <Text style={styles.emptyTitle}>No conversations yet</Text>
                                 <Text style={styles.emptyText}>
                                     Tap the button below to add friends and start chatting!
@@ -279,30 +329,41 @@ const styles = StyleSheet.create({
     },
     chatName: {
         fontSize: 16,
-        fontWeight: '600',
+        fontWeight: '500',
         color: '#000',
         flex: 1,
         marginRight: 8,
+    },
+    chatNameUnread: {
+        fontWeight: '700',
     },
     chatTime: {
         fontSize: 12,
         color: '#888',
     },
+    chatTimeUnread: {
+        color: '#F59E0B',
+        fontWeight: '600',
+    },
     chatMessage: {
         fontSize: 14,
         color: '#666',
     },
+    chatMessageUnread: {
+        fontWeight: '600',
+        color: '#333',
+    },
     unreadBadge: {
-        minWidth: 20,
-        height: 20,
-        borderRadius: 10,
+        minWidth: 22,
+        height: 22,
+        borderRadius: 11,
         backgroundColor: '#F59E0B',
         alignItems: 'center',
         justifyContent: 'center',
         paddingHorizontal: 6,
         marginLeft: 8,
     },
-    unreadText: {
+    unreadBadgeText: {
         fontSize: 12,
         fontWeight: '700',
         color: '#000',
@@ -313,7 +374,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 32,
     },
     emptyIcon: {
-        fontSize: 64,
         marginBottom: 16,
     },
     emptyTitle: {
@@ -321,6 +381,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#000',
         marginBottom: 8,
+        marginTop: 16,
     },
     emptyText: {
         textAlign: 'center',

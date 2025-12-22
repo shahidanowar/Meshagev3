@@ -73,7 +73,7 @@ const NearbyDevicesModal: React.FC<NearbyDevicesModalProps> = ({
             translateY.setValue(MODAL_HEIGHT);
             backdropOpacity.setValue(0);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible]);
 
     const openModal = () => {

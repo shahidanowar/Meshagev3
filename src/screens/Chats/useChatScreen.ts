@@ -6,6 +6,7 @@ import {
   Platform,
 } from 'react-native';
 import { StorageService } from '../../utils/storage';
+import { generateSharedKey, decryptMessage } from '../../utils/encryption';
 import type {
   Peer,
   Message,
@@ -174,15 +175,22 @@ export const useChatScreen = () => {
       MeshNetwork.init();
       setStatus('Initialized');
 
-      // Auto-start discovery after permissions
+      // Auto-start discovery after permissions - ONLY if enabled
       if (!hasAutoStarted.current) {
         hasAutoStarted.current = true;
         const hasPermission = await requestPermissions();
         if (hasPermission) {
-          setStatus('Auto-starting discovery...');
-          setTimeout(() => {
-            MeshNetwork.discoverPeers();
-          }, 1000); // Small delay to ensure initialization
+          // Check network preference before starting
+          const isNetworkEnabled = await StorageService.getNetworkEnabled();
+          if (isNetworkEnabled) {
+            setStatus('Auto-starting discovery...');
+            setTimeout(() => {
+              MeshNetwork.discoverPeers();
+            }, 1000); // Small delay to ensure initialization
+          } else {
+            console.log('Skipping auto-discovery: Network disabled by user');
+            setStatus('DISCONNECTED');
+          }
         } else {
           setStatus('Permissions required. Tap Discover Peers.');
         }
@@ -192,45 +200,53 @@ export const useChatScreen = () => {
     initializeApp();
 
     const attemptConnection = (peer: Peer) => {
-      const attempts = connectionAttempts.current.get(peer.deviceAddress) || 0;
-      const maxAttempts = 3;
-
-      if (!connectedPeers.includes(peer.deviceAddress)) {
-        if (attempts >= maxAttempts) {
-          console.log(`Max connection attempts (${maxAttempts}) reached for: ${peer.deviceName}`);
+      // Check network preference before attempting connection
+      StorageService.getNetworkEnabled().then(isEnabled => {
+        if (!isEnabled) {
+          console.log(`Skipping connection to ${peer.deviceName} - Network disabled by user`);
           return;
         }
 
-        console.log(`Auto-connecting to: ${peer.deviceName} (attempt ${attempts + 1}/${maxAttempts})`);
-        console.log(`Connection details:`, {
-          deviceAddress: peer.deviceAddress,
-          deviceName: peer.deviceName,
-          status: peer.status,
-          attempts: attempts + 1
-        });
+        const attempts = connectionAttempts.current.get(peer.deviceAddress) || 0;
+        const maxAttempts = 3;
 
-        MeshNetwork.connectToPeer(peer.deviceAddress);
-        connectionAttempts.current.set(peer.deviceAddress, attempts + 1);
-
-        // Set retry timer (retry after 3 seconds if connection fails)
-        const existingTimer = connectionRetryTimers.current.get(peer.deviceAddress);
-        if (existingTimer) {
-          clearTimeout(existingTimer);
-        }
-
-        const retryTimer = setTimeout(() => {
-          // Check if still not connected and peer still available
-          if (!connectedPeers.includes(peer.deviceAddress) &&
-            peers.some(p => p.deviceAddress === peer.deviceAddress)) {
-            console.log(`Retrying connection to: ${peer.deviceName}`);
-            attemptConnection(peer);
+        if (!connectedPeers.includes(peer.deviceAddress)) {
+          if (attempts >= maxAttempts) {
+            console.log(`Max connection attempts (${maxAttempts}) reached for: ${peer.deviceName}`);
+            return;
           }
-        }, 3000); // Retry after 3 seconds (reduced from 5)
 
-        connectionRetryTimers.current.set(peer.deviceAddress, retryTimer);
-      } else {
-        console.log(`Skipping connection to ${peer.deviceName} - already connected`);
-      }
+          console.log(`Auto-connecting to: ${peer.deviceName} (attempt ${attempts + 1}/${maxAttempts})`);
+          console.log(`Connection details:`, {
+            deviceAddress: peer.deviceAddress,
+            deviceName: peer.deviceName,
+            status: peer.status,
+            attempts: attempts + 1
+          });
+
+          MeshNetwork.connectToPeer(peer.deviceAddress);
+          connectionAttempts.current.set(peer.deviceAddress, attempts + 1);
+
+          // Set retry timer (retry after 3 seconds if connection fails)
+          const existingTimer = connectionRetryTimers.current.get(peer.deviceAddress);
+          if (existingTimer) {
+            clearTimeout(existingTimer);
+          }
+
+          const retryTimer = setTimeout(() => {
+            // Check if still not connected and peer still available
+            if (!connectedPeers.includes(peer.deviceAddress) &&
+              peers.some(p => p.deviceAddress === peer.deviceAddress)) {
+              console.log(`Retrying connection to: ${peer.deviceName}`);
+              attemptConnection(peer);
+            }
+          }, 3000); // Retry after 3 seconds (reduced from 5)
+
+          connectionRetryTimers.current.set(peer.deviceAddress, retryTimer);
+        } else {
+          console.log(`Skipping connection to ${peer.deviceName} - already connected`);
+        }
+      });
     };
 
     const onPeersFoundListener = MeshNetworkEvents.addListener(
@@ -305,26 +321,41 @@ export const useChatScreen = () => {
           const errorMsg = message || `Error code ${reasonCode || 'Unknown'}`;
           setStatus(`Discovery Failed: ${errorMsg} - Retrying...`);
 
-          // Auto-retry on discovery failure
-          console.log('Discovery failed - Auto-retrying in 3 seconds...');
-          setTimeout(() => {
-            console.log('Restarting discovery...');
-            MeshNetwork.discoverPeers();
-          }, 3000); // Retry after 3 seconds
+          // Auto-retry on discovery failure - ONLY if network is enabled
+          console.log('Discovery failed - Checking preference before retry...');
+          StorageService.getNetworkEnabled().then(isEnabled => {
+            if (isEnabled) {
+              console.log('Network enabled - Auto-retrying in 3 seconds...');
+              setTimeout(() => {
+                console.log('Restarting discovery...');
+                MeshNetwork.discoverPeers();
+              }, 3000); // Retry after 3 seconds
+            } else {
+              console.log('Network disabled by user - NOT retrying discovery');
+              setStatus('DISCONNECTED');
+            }
+          });
 
         } else if (eventStatus.toLowerCase().includes('already')) {
           // Handle "Already discovering" error
           setStatus('Already discovering - Resetting...');
           console.log('Already discovering error - Resetting and restarting...');
 
-          // Stop and restart
-          setTimeout(() => {
-            MeshNetwork.stopDiscovery();
-            setTimeout(() => {
-              console.log('Restarting discovery after reset...');
-              MeshNetwork.discoverPeers();
-            }, 1000);
-          }, 1000);
+          // Stop and restart - ONLY if network is enabled
+          StorageService.getNetworkEnabled().then(isEnabled => {
+            if (isEnabled) {
+              setTimeout(() => {
+                MeshNetwork.stopDiscovery();
+                setTimeout(() => {
+                  console.log('Restarting discovery after reset...');
+                  MeshNetwork.discoverPeers();
+                }, 1000);
+              }, 1000);
+            } else {
+              console.log('Network disabled - NOT restarting after error');
+              MeshNetwork.stopDiscovery();
+            }
+          });
 
         } else {
           setStatus(eventStatus);
@@ -494,6 +525,85 @@ export const useChatScreen = () => {
           return;
         }
 
+        // Check if it's a QR code friend add (mutual friendship via QR scan)
+        if (data.message.startsWith('QR_FRIEND_ADD:')) {
+          console.log('=== QR_FRIEND_ADD MESSAGE RECEIVED ===');
+          console.log('Full message:', data.message);
+
+          const parts = data.message.split(':');
+          // Format: QR_FRIEND_ADD:targetPersistentId:senderPersistentId:senderUsername
+          if (parts.length >= 4) {
+            const targetPersistentId = parts[1];
+            const senderPersistentId = parts[2];
+            const senderUsername = parts[3];
+
+            // Get current persistentId from storage (in case state is stale)
+            const currentPersistentId = await StorageService.getPersistentId();
+
+            console.log('QR Friend Add details:', {
+              targetPersistentId,
+              senderPersistentId,
+              senderUsername,
+              myPersistentId: currentPersistentId
+            });
+
+            // Check if this message is for me
+            if (targetPersistentId === currentPersistentId) {
+              console.log('QR Friend Add is for me!');
+
+              // Check if already friends
+              const isAlreadyFriend = await StorageService.isFriend(senderPersistentId);
+              if (!isAlreadyFriend) {
+                // Add them as friend
+                await StorageService.addFriend({
+                  persistentId: senderPersistentId,
+                  displayName: senderUsername,
+                  deviceAddress: data.fromAddress,
+                });
+
+                // Update local friends list
+                setFriendsList(prev => new Set([...prev, senderPersistentId]));
+
+                console.log('✅ QR Friend added:', senderUsername);
+              } else {
+                console.log('Already friends with:', senderUsername);
+              }
+            } else {
+              console.log('QR Friend Add not for me. Target:', targetPersistentId, 'Me:', currentPersistentId);
+            }
+          } else {
+            console.log('Invalid QR_FRIEND_ADD format, parts:', parts.length);
+          }
+          return;
+        }
+
+        // Check if it's a friend removal message
+        if (data.message.startsWith('FRIEND_REMOVE:')) {
+          console.log('=== FRIEND_REMOVE MESSAGE RECEIVED ===');
+          const parts = data.message.split(':');
+          if (parts.length >= 2) {
+            const removedByPersistentId = parts[1];
+            console.log('Friend removal request from:', removedByPersistentId);
+
+            // Check if we have this person as a friend
+            const isFriend = await StorageService.isFriend(removedByPersistentId);
+            if (isFriend) {
+              // Remove them from our friends list
+              await StorageService.removeFriend(removedByPersistentId);
+
+              // Update local friends list state
+              setFriendsList(prev => {
+                const newSet = new Set([...prev]);
+                newSet.delete(removedByPersistentId);
+                return newSet;
+              });
+
+              console.log('✅ Friend removed (unfriended by them):', removedByPersistentId);
+            }
+          }
+          return;
+        }
+
         // Check if it's a direct message (personal chat)
         if (data.message.startsWith('DIRECT_MSG:')) {
           console.log('Chats - Direct message detected');
@@ -543,9 +653,14 @@ export const useChatScreen = () => {
 
               // Save message to chat history
               if (senderPersistentId) {
+                // Decrypt the message before saving
+                const sharedKey = generateSharedKey(currentPersistentId, senderPersistentId);
+                const decryptedContent = decryptMessage(messageContent, sharedKey);
+                console.log('Chats - Decrypted message from:', senderPersistentId);
+
                 const newMessage = {
                   id: `${data.timestamp}-${data.fromAddress}`,
-                  text: messageContent,
+                  text: decryptedContent,
                   fromAddress: data.fromAddress,
                   senderName: senderName,
                   timestamp: data.timestamp,
@@ -563,7 +678,7 @@ export const useChatScreen = () => {
 
                   const updatedHistory = [...history, newMessage];
                   StorageService.saveChatHistory(senderPersistentId, updatedHistory);
-                  console.log(`✅ Saved direct message from ${senderName} (${senderPersistentId}) to storage`);
+                  console.log(`✅ Saved decrypted direct message from ${senderName} (${senderPersistentId}) to storage`);
                 });
               } else {
                 console.log('⚠️ Could not determine sender persistent ID, message not saved');
@@ -583,10 +698,11 @@ export const useChatScreen = () => {
         }
 
         // Regular broadcast message - but filter out system messages
-        // Don't show FRIEND_REMOVE, FRIEND_REQUEST, FRIEND_ACCEPT in broadcast
+        // Don't show FRIEND_REMOVE, FRIEND_REQUEST, FRIEND_ACCEPT, QR_FRIEND_ADD in broadcast
         if (data.message.startsWith('FRIEND_REMOVE:') ||
           data.message.startsWith('FRIEND_REQUEST:') ||
-          data.message.startsWith('FRIEND_ACCEPT:')) {
+          data.message.startsWith('FRIEND_ACCEPT:') ||
+          data.message.startsWith('QR_FRIEND_ADD:')) {
           console.log('System message filtered from broadcast:', data.message.substring(0, 20));
           return;
         }

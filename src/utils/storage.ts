@@ -12,6 +12,8 @@ const STORAGE_KEYS = {
   FRIEND_REQUESTS: '@meshage_friend_requests',
   ONBOARDING_COMPLETE: '@meshage_onboarding_complete',
   CHAT_HISTORY_PREFIX: '@meshage_chat_', // Prefix for individual chat histories
+  LAST_READ_PREFIX: '@meshage_last_read_', // Prefix for last read timestamp per chat
+  NETWORK_ENABLED: '@meshage_network_enabled', // Whether user wants to stay connected
 };
 
 // Generate a unique persistent ID (UUID v4)
@@ -58,7 +60,7 @@ export const StorageService = {
   getPersistentId: async (): Promise<string> => {
     try {
       let persistentId = await AsyncStorage.getItem(STORAGE_KEYS.PERSISTENT_ID);
-      
+
       // Generate new ID if doesn't exist
       if (!persistentId) {
         persistentId = generatePersistentId();
@@ -67,7 +69,7 @@ export const StorageService = {
       } else {
         console.log('Retrieved existing persistent ID:', persistentId);
       }
-      
+
       return persistentId;
     } catch (error) {
       console.error('Error getting persistent ID:', error);
@@ -92,10 +94,10 @@ export const StorageService = {
   addFriend: async (friend: Friend): Promise<void> => {
     try {
       const friends = await StorageService.getFriends();
-      
+
       // Check if friend already exists (by persistentId)
       const existingIndex = friends.findIndex(f => f.persistentId === friend.persistentId);
-      
+
       if (existingIndex >= 0) {
         // Update existing friend
         friends[existingIndex] = { ...friends[existingIndex], ...friend, lastSeen: Date.now() };
@@ -103,7 +105,7 @@ export const StorageService = {
         // Add new friend
         friends.push({ ...friend, lastSeen: Date.now() });
       }
-      
+
       await AsyncStorage.setItem(STORAGE_KEYS.FRIENDS, JSON.stringify(friends));
       console.log('Friend added/updated:', friend.displayName);
     } catch (error) {
@@ -147,10 +149,10 @@ export const StorageService = {
   addFriendRequest: async (request: FriendRequest): Promise<void> => {
     try {
       const requests = await StorageService.getFriendRequests();
-      
+
       // Check if request already exists
       const existingIndex = requests.findIndex(r => r.persistentId === request.persistentId);
-      
+
       if (existingIndex >= 0) {
         // Update existing request
         requests[existingIndex] = request;
@@ -158,7 +160,7 @@ export const StorageService = {
         // Add new request
         requests.push(request);
       }
-      
+
       await AsyncStorage.setItem(STORAGE_KEYS.FRIEND_REQUESTS, JSON.stringify(requests));
       console.log('Friend request added:', request.displayName);
     } catch (error) {
@@ -230,6 +232,65 @@ export const StorageService = {
       console.log(`Chat history cleared for friend: ${friendId}`);
     } catch (error) {
       console.error('Error clearing chat history:', error);
+    }
+  },
+
+  // Last read timestamp management (for unread tracking)
+  getLastReadTimestamp: async (friendId: string): Promise<number> => {
+    try {
+      const key = `${STORAGE_KEYS.LAST_READ_PREFIX}${friendId}`;
+      const timestamp = await AsyncStorage.getItem(key);
+      return timestamp ? parseInt(timestamp, 10) : 0;
+    } catch (error) {
+      console.error('Error getting last read timestamp:', error);
+      return 0;
+    }
+  },
+
+  setLastReadTimestamp: async (friendId: string, timestamp?: number): Promise<void> => {
+    try {
+      const key = `${STORAGE_KEYS.LAST_READ_PREFIX}${friendId}`;
+      await AsyncStorage.setItem(key, String(timestamp || Date.now()));
+    } catch (error) {
+      console.error('Error setting last read timestamp:', error);
+    }
+  },
+
+  // Get unread count for a specific chat
+  getUnreadCount: async (friendId: string): Promise<number> => {
+    try {
+      const history = await StorageService.getChatHistory(friendId);
+      const lastRead = await StorageService.getLastReadTimestamp(friendId);
+
+      // Count messages that are not sent by me and are after last read
+      const unreadMessages = history.filter(
+        (msg: any) => !msg.isSent && msg.timestamp > lastRead
+      );
+      return unreadMessages.length;
+    } catch (error) {
+      console.error('Error getting unread count:', error);
+      return 0;
+    }
+  },
+
+  // Network connection preference
+  getNetworkEnabled: async (): Promise<boolean> => {
+    try {
+      const value = await AsyncStorage.getItem(STORAGE_KEYS.NETWORK_ENABLED);
+      // Default to true if not set
+      return value !== 'false';
+    } catch (error) {
+      console.error('Error getting network enabled:', error);
+      return true;
+    }
+  },
+
+  setNetworkEnabled: async (enabled: boolean): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.NETWORK_ENABLED, enabled ? 'true' : 'false');
+      console.log('Network enabled set to:', enabled);
+    } catch (error) {
+      console.error('Error setting network enabled:', error);
     }
   },
 };

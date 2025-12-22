@@ -10,7 +10,9 @@ import {
     Platform,
     Animated,
     StatusBar,
-    Dimensions
+    Dimensions,
+    ActivityIndicator,
+    NativeModules,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { Send } from 'lucide-react-native'; // Ensure you have lucide-react-native or use Ionicons
@@ -18,6 +20,7 @@ import { Send } from 'lucide-react-native'; // Ensure you have lucide-react-nati
 // Components and Hooks
 import NearbyDevicesModal from './NearbyDevicesModal'; // Ensure this path is correct based on your file structure
 import { useChatScreen } from './useChatScreen';
+import { StorageService } from '../../utils/storage';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -70,6 +73,29 @@ const ChatScreen = ({ navigation }: any) => {
         return 'DISCONNECTED';
     };
     const broadcastStatus = getBroadcastStatus();
+    const isDiscovering = broadcastStatus === 'Discovering...';
+
+    // Auto-restart discovery when disconnected - ONLY if network is enabled by user
+    useEffect(() => {
+        const checkAndRestart = async () => {
+            if (broadcastStatus === 'DISCONNECTED') {
+                const isNetworkEnabled = await StorageService.getNetworkEnabled();
+
+                if (isNetworkEnabled) {
+                    console.log('Auto-restarting discovery (network enabled)');
+                    const timer = setTimeout(() => {
+                        const { MeshNetwork } = NativeModules;
+                        MeshNetwork.discoverPeers();
+                    }, 2000); // Wait 2 seconds before restarting
+                    return () => clearTimeout(timer);
+                } else {
+                    console.log('Network disabled by user - NOT restarting discovery');
+                }
+            }
+        };
+
+        checkAndRestart();
+    }, [broadcastStatus]);
 
     // 4. Friend Request Animation Logic
     useEffect(() => {
@@ -138,7 +164,16 @@ const ChatScreen = ({ navigation }: any) => {
 
             {/* --- HEADER --- */}
             <View style={styles.statusBar}>
-                <Text style={styles.statusLabel}>Broadcast Status: <Text style={styles.statusValue}>{broadcastStatus}</Text></Text>
+                <View style={styles.statusLeft}>
+                    <Text style={styles.statusLabel}>Broadcast Status: <Text style={styles.statusValue}>{broadcastStatus}</Text></Text>
+                    {isDiscovering && (
+                        <ActivityIndicator
+                            size="small"
+                            color="#F59E0B"
+                            style={styles.statusLoader}
+                        />
+                    )}
+                </View>
 
                 <View style={styles.statusRight}>
                     {/* Peers Button */}
@@ -372,6 +407,15 @@ const styles = StyleSheet.create({
         paddingVertical: 4,
         paddingHorizontal: 8,
         borderRadius: 12,
+    },
+    statusLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        flex: 1,
+    },
+    statusLoader: {
+        marginLeft: 4,
     },
     statusDotWrapper: {
         flexDirection: 'row',
