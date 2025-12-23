@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -12,6 +12,8 @@ import {
     Dimensions,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import type { FriendRequest } from '../../types';
+
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MODAL_HEIGHT = SCREEN_HEIGHT * 0.45;
@@ -29,6 +31,7 @@ interface NearbyDevicesModalProps {
     devices: Device[];
     onMessage: (deviceId: string) => void;
     onAddFriend: (deviceId: string) => void;
+    friendRequests?: FriendRequest[];
 }
 
 const NearbyDevicesModal: React.FC<NearbyDevicesModalProps> = ({
@@ -37,9 +40,12 @@ const NearbyDevicesModal: React.FC<NearbyDevicesModalProps> = ({
     devices,
     onMessage,
     onAddFriend,
+    friendRequests = [],
 }) => {
     const translateY = useRef(new Animated.Value(MODAL_HEIGHT)).current;
     const backdropOpacity = useRef(new Animated.Value(0)).current;
+    // Local state for immediate visual feedback
+    const [pendingClicks, setPendingClicks] = useState<Set<string>>(new Set());
 
     const panResponder = useRef(
         PanResponder.create({
@@ -76,6 +82,44 @@ const NearbyDevicesModal: React.FC<NearbyDevicesModalProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible]);
 
+    // Clear local pending when friendRequests updates (request was saved)
+    useEffect(() => {
+        friendRequests.forEach(req => {
+            if (req.type === 'outgoing' && pendingClicks.has(req.persistentId)) {
+                setPendingClicks(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(req.persistentId);
+                    return newSet;
+                });
+            }
+        });
+    }, [friendRequests, pendingClicks]);
+
+    // Clear pending clicks ONLY when modal reopens (handles cancelled/removed requests)
+    // Don't depend on friendRequests to avoid clearing during normal flow
+    useEffect(() => {
+        if (visible) {
+            // Small delay to ensure friendRequests state has updated
+            const timer = setTimeout(() => {
+                setPendingClicks(prev => {
+                    const newSet = new Set<string>();
+                    prev.forEach(deviceId => {
+                        // Keep in pending only if there's a matching outgoing request
+                        const hasRequest = friendRequests.some(
+                            req => req.persistentId === deviceId && req.type === 'outgoing'
+                        );
+                        if (hasRequest) {
+                            newSet.add(deviceId);
+                        }
+                    });
+                    return newSet;
+                });
+            }, 100); // Small delay to let state settle
+
+            return () => clearTimeout(timer);
+        }
+    }, [visible]); // Only when modal opens, not on friendRequests changes
+
     const openModal = () => {
         Animated.parallel([
             Animated.spring(translateY, {
@@ -109,37 +153,60 @@ const NearbyDevicesModal: React.FC<NearbyDevicesModalProps> = ({
         });
     };
 
-    const renderDeviceItem = ({ item }: { item: Device }) => (
-        <View style={styles.deviceItem}>
-            <View style={styles.deviceInfo}>
-                <View
-                    style={[
-                        styles.deviceStatusDot,
-                        item.isConnected ? styles.deviceStatusDotConnected : styles.deviceStatusDotDisconnected,
-                    ]}
-                />
-                <View style={styles.deviceTextContainer}>
-                    <Text style={styles.deviceName}>{item.name}</Text>
-                    <Text style={styles.deviceStatus}>
-                        {item.isFriend ? 'Friend' : 'Not Friend'}
-                    </Text>
+    const handleAddFriend = (deviceId: string) => {
+        // Add to local pending for immediate feedback
+        setPendingClicks(prev => new Set(prev).add(deviceId));
+
+        // Call parent callback (will update friendRequests)
+        onAddFriend(deviceId);
+    };
+
+    const renderDeviceItem = ({ item }: { item: Device }) => {
+        // Check BOTH:
+        // 1. Local pending clicks (immediate feedback)
+        // 2. Actual friend requests from storage (persistent)
+        const hasOutgoingRequest = friendRequests.some(
+            req => req.persistentId === item.id && req.type === 'outgoing'
+        );
+        const hasLocalPending = pendingClicks.has(item.id);
+        const isPending = hasOutgoingRequest || hasLocalPending;
+
+        return (
+            <View style={styles.deviceItem}>
+                <View style={styles.deviceInfo}>
+                    <View
+                        style={[
+                            styles.deviceStatusDot,
+                            item.isConnected ? styles.deviceStatusDotConnected : styles.deviceStatusDotDisconnected,
+                        ]}
+                    />
+                    <View style={styles.deviceTextContainer}>
+                        <Text style={styles.deviceName}>{item.name}</Text>
+                        <Text style={[styles.deviceStatus, isPending && styles.deviceStatusPending]}>
+                            {item.isFriend ? 'Friend' : isPending ? 'Request Sent' : 'Not Friend'}
+                        </Text>
+                    </View>
                 </View>
+                <TouchableOpacity
+                    style={[
+                        styles.actionButton,
+                        isPending && styles.actionButtonPending
+                    ]}
+                    onPress={() =>
+                        item.isFriend ? onMessage(item.id) : handleAddFriend(item.id)
+                    }
+                    activeOpacity={0.7}
+                    disabled={isPending}
+                >
+                    <Ionicons
+                        name={item.isFriend ? 'chatbubble' : isPending ? 'checkmark-circle' : 'person-add'}
+                        size={18}
+                        color={isPending ? '#22C55E' : item.isFriend ? '#555151ff' : '#555151ff'}
+                    />
+                </TouchableOpacity>
             </View>
-            <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() =>
-                    item.isFriend ? onMessage(item.id) : onAddFriend(item.id)
-                }
-                activeOpacity={0.7}
-            >
-                <Ionicons
-                    name={item.isFriend ? 'chatbubble' : 'person-add'}
-                    size={18}
-                    color="#555151ff"
-                />
-            </TouchableOpacity>
-        </View>
-    );
+        );
+    };
 
     const friendsCount = devices.filter((d) => d.isFriend).length;
 
@@ -313,6 +380,13 @@ const styles = StyleSheet.create({
     actionButton: {
         padding: 8,
         marginLeft: 8,
+    },
+    deviceStatusPending: {
+        color: '#22C55E',
+        fontWeight: '600',
+    },
+    actionButtonPending: {
+        opacity: 0.6,
     },
 });
 

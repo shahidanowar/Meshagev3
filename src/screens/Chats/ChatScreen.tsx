@@ -304,6 +304,7 @@ const ChatScreen = ({ navigation }: any) => {
                 devices={devicesForModal}
                 onMessage={handlePrivateChat} // Navigates to PersonalChat
                 onAddFriend={handleAddFriendWrapper}
+                friendRequests={friendRequests}
             />
 
             {/* --- FRIEND REQUESTS OVERLAY --- */}
