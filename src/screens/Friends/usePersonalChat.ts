@@ -273,6 +273,20 @@ export const usePersonalChat = ({ friendId, friendName, friendAddress }: UsePers
     }, 100);
   };
 
+  const handleUnfriend = async () => {
+    try {
+      // Remove friend from friends list
+      await StorageService.removeFriend(friendId);
+      // Clear chat history
+      await StorageService.clearChatHistory(friendId);
+      console.log('PersonalChat - Unfriended and cleared chat history:', friendId);
+      return true;
+    } catch (error) {
+      console.error('PersonalChat - Error unfriending:', error);
+      return false;
+    }
+  };
+
   return {
     messages,
     messageText,
@@ -280,5 +294,6 @@ export const usePersonalChat = ({ friendId, friendName, friendAddress }: UsePers
     messagesEndRef,
     setMessageText,
     handleSendMessage,
+    handleUnfriend,
   };
 };

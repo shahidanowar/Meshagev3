@@ -217,7 +217,7 @@ const ChatScreen = ({ navigation }: any) => {
             {/* --- CHAT AREA --- */}
             <KeyboardAvoidingView
                 style={styles.flexContainer}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
             >
                 <ScrollView
@@ -556,6 +556,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 12,
         paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+        backgroundColor: '#E5E5E5',
     },
     input: {
         flex: 1,

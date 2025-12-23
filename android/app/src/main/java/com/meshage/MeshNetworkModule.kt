@@ -42,6 +42,7 @@ class MeshNetworkModule(private val reactContext: ReactApplicationContext) :
         private const val SERVICE_ID = "com.meshage.mesh"
         private const val TAG = "MeshNetworkModule"
         private const val MESSAGE_SEPARATOR = "|||" // Separator for originalSender|||message
+        private const val MAX_HOPS = 10 // Maximum hops for message propagation (TTL)
     }
 
     override fun getName() = "MeshNetwork"
@@ -149,16 +150,19 @@ class MeshNetworkModule(private val reactContext: ReactApplicationContext) :
                         Payload.Type.BYTES -> {
                             val rawMessage = String(payload.asBytes()!!, StandardCharsets.UTF_8)
                             
-                            // Parse message format: "originalSenderId|||senderName|||messageContent"
-                            val parts = rawMessage.split(MESSAGE_SEPARATOR, limit = 3)
-                            if (parts.size != 3) {
+                            // Parse message format: "originalSenderId|||senderName|||hopCount|||messageContent"
+                            val parts = rawMessage.split(MESSAGE_SEPARATOR, limit = 4)
+                            if (parts.size != 4) {
                                 Log.w(TAG, "Invalid message format received: $rawMessage")
                                 return
                             }
                             
                             val originalSenderId = parts[0]
                             val senderName = parts[1]
-                            val messageContent = parts[2]
+                            val hopCount = parts[2].toIntOrNull() ?: 0
+                            val messageContent = parts[3]
+                            
+                            Log.d(TAG, "Message received at hop $hopCount from $senderName ($originalSenderId)")
                             
                             // Create hash based on original sender + message content
                             // This allows different users to send the same message
@@ -177,18 +181,27 @@ class MeshNetworkModule(private val reactContext: ReactApplicationContext) :
                             // Clean up old messages from cache
                             cleanupOldMessages(currentTime)
                             
-                            Log.d(TAG, "Message received from $senderName ($originalSenderId) via $endpointId: $messageContent")
-                            
-                            // Emit message received event with ORIGINAL sender and name
+                            // Emit message received event with ORIGINAL sender and hop count
                             sendEvent("onMessageReceived", Arguments.createMap().apply {
                                 putString("message", messageContent)
                                 putString("fromAddress", originalSenderId)
                                 putString("senderName", senderName)
+                                putInt("hopCount", hopCount)
                                 putDouble("timestamp", currentTime.toDouble())
                             })
                             
-                            // Forward the ORIGINAL message (with original sender ID) to other peers
-                            forwardMessageToOthers(rawMessage, endpointId)
+                            // Check if we should forward this message (TTL check)
+                            if (hopCount >= MAX_HOPS) {
+                                Log.d(TAG, "Message reached max hops ($hopCount >= $MAX_HOPS), NOT forwarding")
+                                return
+                            }
+                            
+                            // Increment hop count and forward to other peers
+                            val newHopCount = hopCount + 1
+                            val updatedMessage = "$originalSenderId$MESSAGE_SEPARATOR$senderName$MESSAGE_SEPARATOR$newHopCount$MESSAGE_SEPARATOR$messageContent"
+                            forwardMessageToOthers(updatedMessage, endpointId)
+                            
+                            Log.d(TAG, "Message forwarded with new hop count: $newHopCount")
                         }
                         else -> Log.d(TAG, "Received non-BYTES payload type, ignoring")
                     }
@@ -321,14 +334,15 @@ class MeshNetworkModule(private val reactContext: ReactApplicationContext) :
             localEndpointId = "local-${System.currentTimeMillis()}"
         }
         
-        // Format: "originalSenderId|||senderName|||messageContent"
-        val formattedMessage = "$localEndpointId$MESSAGE_SEPARATOR$senderName$MESSAGE_SEPARATOR$message"
+        // Format: "originalSenderId|||senderName|||hopCount|||messageContent"
+        // Initial hop count is 0 for messages sent from this device
+        val formattedMessage = "$localEndpointId$MESSAGE_SEPARATOR$senderName${MESSAGE_SEPARATOR}0$MESSAGE_SEPARATOR$message"
         val payload = Payload.fromBytes(formattedMessage.toByteArray(StandardCharsets.UTF_8))
         
         // Mark sent message as seen to prevent receiving it back from others
         val messageHash = "$localEndpointId:$message".hashCode().toString()
         seenMessages[messageHash] = System.currentTimeMillis()
-        Log.d(TAG, "Marked sent message as seen from $senderName: $message")
+        Log.d(TAG, "Marked sent message as seen from $senderName: $message (initial hop count: 0)")
         
         if (targetAddress != null) {
             // Send to specific peer
