@@ -275,11 +275,16 @@ export const usePersonalChat = ({ friendId, friendName, friendAddress }: UsePers
 
   const handleUnfriend = async () => {
     try {
-      // Remove friend from friends list
+      // Send unfriend notification to the network
+      const unfriendMessage = `UNFRIEND:${friendId}:${myPersistentId}`;
+      console.log('PersonalChat - Broadcasting unfriend notification:', unfriendMessage);
+      MeshNetwork.sendMessage(unfriendMessage, myUsername, null); // Broadcast to all
+
+      // Remove friend from local storage
       await StorageService.removeFriend(friendId);
       // Clear chat history
       await StorageService.clearChatHistory(friendId);
-      console.log('PersonalChat - Unfriended and cleared chat history:', friendId);
+      console.log('PersonalChat - Unfriended and notified:', friendId);
       return true;
     } catch (error) {
       console.error('PersonalChat - Error unfriending:', error);

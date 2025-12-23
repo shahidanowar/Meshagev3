@@ -604,6 +604,48 @@ export const useChatScreen = () => {
           return;
         }
 
+        // Check if it's an unfriend notification
+        if (data.message.startsWith('UNFRIEND:')) {
+          console.log('=== UNFRIEND MESSAGE RECEIVED ===');
+          const parts = data.message.split(':');
+          // Format: UNFRIEND:targetFriendId:unfrienderPersistentId
+          if (parts.length === 3) {
+            const targetFriendId = parts[1];
+            const unfrienderPersistentId = parts[2];
+
+            // Get current persistentId from storage
+            const currentPersistentId = await StorageService.getPersistentId();
+
+            console.log('Unfriend notification:', {
+              targetFriendId,
+              unfrienderPersistentId,
+              myPersistentId: currentPersistentId
+            });
+
+            // Check if we are the target (the person being unfriended)
+            // OR if we should remove the unfriender from our list
+            if (targetFriendId === currentPersistentId || unfrienderPersistentId === targetFriendId) {
+              // Check if we have the unfriender as a friend
+              const isFriend = await StorageService.isFriend(unfrienderPersistentId);
+              if (isFriend) {
+                // Remove them from our friends list
+                await StorageService.removeFriend(unfrienderPersistentId);
+
+                // Update local friends list state
+                setFriendsList(prev => {
+                  const newSet = new Set([...prev]);
+                  newSet.delete(unfrienderPersistentId);
+                  console.log('✅ Removed friend (mutual unfriend):', unfrienderPersistentId);
+                  return newSet;
+                });
+
+                console.log('✅ Friend removed (unfriended by them):', unfrienderPersistentId);
+              }
+            }
+          }
+          return;
+        }
+
         // Check if it's a direct message (personal chat)
         if (data.message.startsWith('DIRECT_MSG:')) {
           console.log('Chats - Direct message detected');
@@ -698,11 +740,12 @@ export const useChatScreen = () => {
         }
 
         // Regular broadcast message - but filter out system messages
-        // Don't show FRIEND_REMOVE, FRIEND_REQUEST, FRIEND_ACCEPT, QR_FRIEND_ADD in broadcast
+        // Don't show FRIEND_REMOVE, FRIEND_REQUEST, FRIEND_ACCEPT, QR_FRIEND_ADD, UNFRIEND in broadcast
         if (data.message.startsWith('FRIEND_REMOVE:') ||
           data.message.startsWith('FRIEND_REQUEST:') ||
           data.message.startsWith('FRIEND_ACCEPT:') ||
-          data.message.startsWith('QR_FRIEND_ADD:')) {
+          data.message.startsWith('QR_FRIEND_ADD:') ||
+          data.message.startsWith('UNFRIEND:')) {
           console.log('System message filtered from broadcast:', data.message.substring(0, 20));
           return;
         }
